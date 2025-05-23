@@ -6,6 +6,7 @@ import numpy as np
 from music21 import converter, note, chord, harmony, meter, stream
 import torch.nn.functional as F
 from tqdm import tqdm
+import pickle
 
 def extract_lead_sheet_info(xml_path, quantization='16th', fixed_length=None):
     # Load the score and flatten
@@ -149,7 +150,7 @@ def compute_normalized_token_entropy(logits, target_ids, pad_token_id=None):
 
 
 class GuidedGridMLMDataset(Dataset):
-    def __init__(self, root_dir, tokenizer, fixed_length=512, frontloading=True):
+    def __init__(self, root_dir, tokenizer, fixed_length=512, frontloading=True, frontloaded_file=None):
         self.data_files = []
         for dirpath, _, filenames in os.walk(root_dir):
             for file in filenames:
@@ -160,13 +161,21 @@ class GuidedGridMLMDataset(Dataset):
         self.fixed_length = fixed_length
         self.frontloading = frontloading
         if self.frontloading:
-            print('Frontloading data.')
-            self.encoded = []
-            for data_file in tqdm(self.data_files):
-                try:
-                    self.encoded.append( self.tokenizer.encode( data_file ) )
-                except:
-                    print('Problem in:', data_file)
+            # check if file exists and load it
+            if frontloaded_file is not None and os.path.isfile(frontloaded_file):
+                with open(frontloaded_file, 'rb') as f:
+                    self.encoded = pickle.load(f)
+            else:
+                print('Frontloading data.')
+                self.encoded = []
+                for data_file in tqdm(self.data_files):
+                    try:
+                        self.encoded.append( self.tokenizer.encode( data_file ) )
+                    except:
+                        print('Problem in:', data_file)
+                if frontloaded_file is not None:
+                    with open(frontloaded_file, 'wb') as f:
+                        pickle.dump(self.encoded, f)
     # end init
 
     def __len__(self):
@@ -186,7 +195,8 @@ class GuidedGridMLMDataset(Dataset):
             'input_ids': encoded['input_ids'],
             'attention_mask': encoded['attention_mask'],
             'pianoroll': encoded['pianoroll'],
-            'time_signature': encoded['time_signature']
+            'time_signature': encoded['time_signature'],
+            'features': encoded['features']
         }
     # end getitem
 # end class dataset

@@ -234,7 +234,7 @@ class CSGridMLMTokenizer(PreTrainedTokenizer):
         # update chord type distribution feature
         try:
             type_idx = self.qualities.index(type_token)
-            self.chord_type_distribution[ type_idx ] += 1/256
+            self.chord_type_distribution[ type_idx ] += 1
         except:
             print("type not found: ", type_token)
         chord_token = root_token + (len(type_token) > 0)*':' + type_token
@@ -441,6 +441,15 @@ class CSGridMLMTokenizer(PreTrainedTokenizer):
                 attention_mask = [1]*n_steps + [0]*pad_len
         else:
             attention_mask = [1]*n_steps
+        # normalize features
+        s_tmp = sum(self.chord_type_distribution)
+        if s_tmp > 0:
+            for i in range(len(self.chord_type_distribution)):
+                self.chord_type_distribution[i] /= s_tmp
+        s_tmp = sum(self.chord_duration_distribution)
+        if s_tmp > 0:
+            for i in range(len(self.chord_duration_distribution)):
+                self.chord_duration_distribution[i] /= s_tmp
         return {
             'input_tokens': chord_tokens,
             'input_ids': chord_token_ids,
