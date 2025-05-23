@@ -78,7 +78,7 @@ class MelodicHarmonizer(nn.Module):
     def __init__(self, vae_cfg, encoder_cfg,
                  chord_vocab_size, d_model,
                  conditioning_dim, pianoroll_dim, grid_length,
-                 handcrafted_feature_dim, unfold_latent=False, device='cpu'):
+                 guidance_dim, unfold_latent=False, device='cpu'):
         super().__init__()
         self.device = device
         self.grid_length = grid_length
@@ -88,7 +88,7 @@ class MelodicHarmonizer(nn.Module):
         self.condition_proj = nn.Linear(conditioning_dim, d_model, device=device)
         self.melody_proj = nn.Linear(pianoroll_dim, d_model, device=device)
         self.harmony_embedding = nn.Embedding(chord_vocab_size, d_model, device=device)
-        self.zproj_to_dmodel = nn.Linear(handcrafted_feature_dim, d_model, device=device)
+        self.guidance_to_dmodel = nn.Linear(guidance_dim, d_model, device=device)
         self.pos_embedding = nn.Parameter(torch.randn(1, self.seq_len, d_model))
 
         self.vae = GuidanceVAE(**vae_cfg, device=device)
@@ -97,7 +97,7 @@ class MelodicHarmonizer(nn.Module):
 
         self.recon_loss_fn = nn.MSELoss()
         self.contrastive_margin = 1.0
-        self.handcrafted_feature_dim = handcrafted_feature_dim
+        self.guidance_dim = guidance_dim
 
     def compute_losses(self, input_seq, recon_seq, mu, logvar,
                        z_proj, handcrafted_features):
@@ -126,18 +126,18 @@ class MelodicHarmonizer(nn.Module):
         input_seq += self.pos_embedding[:, :input_seq.size(1), :]
 
         z, mu, logvar, recon_seq, z_proj = self.vae(input_seq.detach()) # TODO: do we need to detach?
-        z_proj_dmodel = self.zproj_to_dmodel(z_proj)
-        z_proj_dmodel = z_proj_dmodel.unsqueeze(1)  # (B, 1, D)
+        z_dmodel = self.guidance_to_dmodel(z)
+        z_dmodel = z_dmodel.unsqueeze(1)  # (B, 1, D)
         if self.unfold_latent:
-            z_seq = self.z_proj_dmodel(z).unsqueeze(1).repeat(1, self.seq_len, 1)
+            z_seq = z_dmodel.unsqueeze(1).repeat(1, self.seq_len, 1)
         else:
             z_seq = torch.zeros_like(input_seq)
-            z_seq[:, 0:1, :] = z_proj_dmodel
+            z_seq[:, 0:1, :] = z_dmodel
 
 
-        full_seq = input_seq + z_seq
+        guided_seq = input_seq + z_seq
 
-        harmony_output = self.encoder(full_seq, stage_indices)
+        harmony_output = self.encoder(guided_seq, stage_indices)
 
         recon_loss, kl_loss, contrastive_loss = self.compute_losses(
             input_seq, recon_seq, mu, logvar, z_proj, handcrafted_features)
