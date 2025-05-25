@@ -25,8 +25,29 @@ def train_gmlmh(
             device = torch.device(device_name)
         else:
             print('Selected device not available: ' + device_name)
+    vae_cfg = {
+        'input_dim': 512,
+        'hidden_dim': 256,
+        'latent_dim': 128,
+        'seq_len': 513,
+        'feature_dim': 37,
+    }
+    encoder_cfg = {
+        'nhead': 8,
+        'num_layers': 8,
+        'stage_embedding_dim': 18,
+        'max_stages': 10
+    }
     model = GuidedMLMH(
+        vae_cfg=vae_cfg,
+        encoder_cfg=encoder_cfg,
         chord_vocab_size=len(tokenizer.vocab),
+        d_model=512,
+        conditioning_dim=18,
+        pianoroll_dim=100,
+        grid_length=256,
+        guidance_dim=128,
+        unfold_latent=True,
         device=device,
     )
     model.to(device)

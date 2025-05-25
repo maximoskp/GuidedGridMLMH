@@ -437,7 +437,7 @@ def train_with_curriculum(
                 melody_grid = batch["pianoroll"].to(device)             # (B, 256, 140)
                 harmony_gt = batch["input_ids"].to(device)             # (B, 256)
                 conditioning_vec = batch["time_signature"].to(device)  # (B, C0)
-                handcrafted_feats = batch["handcrafted_features"].to(device)  # (B, F)
+                handcrafted_feats = batch["features"].to(device)  # (B, F)
 
                 harmony_input, harmony_target, stage_indices = apply_masking(
                     harmony_gt,

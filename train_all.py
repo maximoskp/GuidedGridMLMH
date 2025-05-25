@@ -4,56 +4,71 @@ from torch.utils.data import DataLoader
 from GridMLM_tokenizers import GuidedGridMLMTokenizer
 import multiprocessing
 
-train_dir = '/media/maindisk/maximos/data/hooktheory_train'
-val_dir = '/media/maindisk/maximos/data/hooktheory_test'
+# train_dir = '/media/maindisk/maximos/data/hooktheory_train'
+# val_dir = '/media/maindisk/maximos/data/hooktheory_test'
+train_dir = '/media/maindisk/maximos/data/gjt'
+val_dir = '/media/maindisk/maximos/data/gjt'
 
 batchsize = 32
 
-tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
+tokenizer = None
 
-train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloaded_file='data/' + train_dir.split('/')[-1] + '.pickle')
-val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloaded_file='data/' + val_dir.split('/')[-1] + '.pickle')
+train_dataset = None
+val_dataset = None
 
-trainloader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True, collate_fn=GuidedGridMLM_collate_fn)
-valloader = DataLoader(val_dataset, batch_size=batchsize, shuffle=False, collate_fn=GuidedGridMLM_collate_fn)
+trainloader = None
+valloader = None
 
-def init_worker(tl, vl, tok):
-    global trainloader, valloader, tokenizer
+def init_worker(td, vd, tl, vl, tok):
+    global train_dataset, val_dataset, trainloader, valloader, tokenizer
+    train_dataset = td
+    val_dataset = vd
     trainloader = tl
     valloader = vl
     tokenizer = tok
 # end init_worker
 
-def train_wrapper(args):
-    subfolder, curriculum_type, device_name = args
+def train_wrapper(kwargs):
     return train_gmlmh(
         trainloader=trainloader,
         valloader=valloader,
         tokenizer=tokenizer,
-        subfolder=subfolder,
-        curriculum_type=curriculum_type,
-        device_name=device_name
+        **kwargs
     )
 # end train_wrapper
 
 if __name__ == "__main__":
     # Load your heavy objects ONCE
-    data = ...  # however you load your trainloader
-    val = ...
-    tok = ...
+    tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
+
+    train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloaded_file='data/' + train_dir.split('/')[-1] + '.pickle')
+    val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloaded_file='data/' + val_dir.split('/')[-1] + '.pickle')
+
+    trainloader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True, collate_fn=GuidedGridMLM_collate_fn)
+    valloader = DataLoader(val_dataset, batch_size=batchsize, shuffle=False, collate_fn=GuidedGridMLM_collate_fn)
 
     task_args = [
-        ("run1", "base2", "cuda:0"),
-        ("run2", "linear", "cuda:1"),
-        ("run3", "none", "cuda:2"),
-        ("run4", "step", "cuda:3"),
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'base2',
+            'device_name': 'cuda:0'
+        },
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'random',
+            'device_name': 'cuda:1'
+        },
     ]
 
     # Use "fork" for memory-efficient sharing (if on Unix)
     with multiprocessing.get_context("fork").Pool(
-        processes=4,
+        processes=len(task_args),
         initializer=init_worker,
-        initargs=(data, val, tok)
+        initargs=(train_dataset, val_dataset, trainloader, valloader, tokenizer)
     ) as pool:
         results = pool.map(train_wrapper, task_args)
 
