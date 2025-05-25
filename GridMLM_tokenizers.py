@@ -31,7 +31,7 @@ for k in list(MIR_QUALITIES.keys()) + ['7(b9)', '7(#9)', '7(#11)', '7(b13)']:
     _, semitone_bitmap, _ = mir_eval.chord.encode( 'C' + (len(k) > 0)*':' + k, reduce_extended_chords=True )
     EXT_MIR_QUALITIES[k] = semitone_bitmap
 
-class CSGridMLMTokenizer(PreTrainedTokenizer):
+class GuidedGridMLMTokenizer(PreTrainedTokenizer):
     def __init__(self, quantization='16th', fixed_length=None, vocab=None, special_tokens=None, **kwargs):
         self.unk_token = '<unk>'
         self.pad_token = '<pad>'
@@ -397,7 +397,7 @@ class CSGridMLMTokenizer(PreTrainedTokenizer):
                 tmp_counter += 1
             else:
                 self.chord_duration_distribution[ min( int(np.log2(tmp_counter)), 7 ) ] += 1
-                tmp_counter = 0
+                tmp_counter = 1
         if tmp_counter > 0:
             self.chord_duration_distribution[ min( int(np.log2(tmp_counter)), 7 ) ] += 1
 
@@ -506,7 +506,7 @@ class CSGridMLMTokenizer(PreTrainedTokenizer):
         return cls(vocab, special_tokens)
     # end from_pretrained
 
-# end class CSGridMLMTokenizer
+# end class GuidedGridMLMTokenizer
 
 class CSGridMLMTokenizerNoPCs(PreTrainedTokenizer):
     def __init__(self, quantization='16th', fixed_length=None, vocab=None, special_tokens=None, **kwargs):

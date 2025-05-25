@@ -20,6 +20,7 @@ class GuidanceVAE(nn.Module):
         self.latent_to_seq_proj = nn.Linear(latent_dim, input_dim)
 
         self.feature_proj = nn.Linear(latent_dim, feature_dim)
+    # end init
 
     def encode(self, x):
         _, (h_n, _) = self.encoder_rnn(x)
@@ -27,23 +28,27 @@ class GuidanceVAE(nn.Module):
         mu = self.mu_proj(h)
         logvar = self.logvar_proj(h)
         return mu, logvar
+    # end encode
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
         eps = torch.randn_like(std)
         return mu + eps * std
+    # end parametrize
 
     def decode(self, z):
         z_seq = self.latent_to_seq_proj(z).unsqueeze(1).repeat(1, self.seq_len, 1)
         output, _ = self.decoder_rnn(z_seq)
         return self.recon_proj(output)
-
+    # end decode
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
         recon_x = self.decode(z)
         z_proj = self.feature_proj(z)
         return z, mu, logvar, recon_x, z_proj
+    # end forward
+# end class GuidanceVAE
 
 class GridMLMMelHarmEncoder(nn.Module):
     def __init__(self, chord_vocab_size, d_model, nhead, num_layers,
@@ -62,6 +67,7 @@ class GridMLMMelHarmEncoder(nn.Module):
         self.input_norm = nn.LayerNorm(d_model)
         self.output_norm = nn.LayerNorm(d_model)
         self.output_head = nn.Linear(d_model, chord_vocab_size, device=device)
+    # end init
 
     def forward(self, full_seq, stage_indices):
         if stage_indices is not None:
@@ -73,8 +79,10 @@ class GridMLMMelHarmEncoder(nn.Module):
         encoded = self.encoder(full_seq)
         encoded = self.output_norm(encoded)
         return self.output_head(encoded[:, -encoded.size(1)//3:, :])
+    # end forward
+# end class GridMLMMelHarmEncoder
 
-class MelodicHarmonizer(nn.Module):
+class GuidedMLMH(nn.Module):
     def __init__(self, vae_cfg, encoder_cfg,
                  chord_vocab_size, d_model,
                  conditioning_dim, pianoroll_dim, grid_length,
@@ -98,6 +106,7 @@ class MelodicHarmonizer(nn.Module):
         self.recon_loss_fn = nn.MSELoss()
         self.contrastive_margin = 1.0
         self.guidance_dim = guidance_dim
+    # end init
 
     def compute_losses(self, input_seq, recon_seq, mu, logvar,
                        z_proj, handcrafted_features):
@@ -109,6 +118,7 @@ class MelodicHarmonizer(nn.Module):
         labels = torch.arange(similarity.size(0), device=similarity.device)
         contrastive_loss = F.cross_entropy(similarity, labels)
         return recon_loss, kl_loss, contrastive_loss
+    # end compute_losses
 
     def forward(self, conditioning_vec, melody_grid, harmony_tokens,
                 stage_indices, handcrafted_features):
@@ -147,3 +157,5 @@ class MelodicHarmonizer(nn.Module):
             'kl_loss': kl_loss,
             'contrastive_loss': contrastive_loss
         }
+    # end forward
+# end class GuidedMLMH

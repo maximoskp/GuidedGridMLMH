@@ -210,6 +210,7 @@ def validation_loop(model, valloader, mask_token_id, loss_fn, epoch, step, \
                 melody_grid = batch["pianoroll"].to(device)           # (B, 256, 140)
                 harmony_gt = batch["input_ids"].to(device)         # (B, 256)
                 conditioning_vec = batch["time_signature"].to(device)  # (B, C0)
+                features = batch["features"].to(device)  # (B, F)
                 
                 # Apply masking to harmony
                 harmony_input, harmony_target, stage_indices = apply_masking(
@@ -220,19 +221,21 @@ def validation_loop(model, valloader, mask_token_id, loss_fn, epoch, step, \
                 )
 
                 # Forward pass
-                logits = model(
+                logits, losses = model(
                     conditioning_vec,
                     melody_grid,
                     harmony_input,
-                    stage_indices
+                    stage_indices,
+                    features
                 )
 
                 # Compute loss only on masked tokens
-                loss = loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
+                task_loss = loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
+                total_loss = task_loss + losses['recon_loss'] + losses['kl_loss'] + losses['contrastive_loss']
 
                 # update loss and accuracy
                 batch_num += 1
-                running_loss += loss.item()
+                running_loss += total_loss.item()
                 val_loss = running_loss/batch_num
                 # accuracy
                 predictions = logits.argmax(dim=-1)
@@ -317,6 +320,7 @@ def train_with_curriculum_old(
                 melody_grid = batch["pianoroll"].to(device)           # (B, 256, 140)
                 harmony_gt = batch["input_ids"].to(device)         # (B, 256)
                 conditioning_vec = batch["time_signature"].to(device)  # (B, C0)
+                features = batch["features"].to(device)  # (B, F)
                 
                 # Apply masking to harmony
                 harmony_input, harmony_target, stage_indices = apply_masking(
@@ -327,24 +331,26 @@ def train_with_curriculum_old(
                 )
 
                 # Forward pass
-                logits = model(
+                logits, losses = model(
                     conditioning_vec.to(device),
                     melody_grid.to(device),
                     harmony_input.to(device),
-                    stage_indices
+                    stage_indices,
+                    features
                 )
 
                 # Compute loss only on masked tokens
-                loss = loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
+                task_loss = loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
+                total_loss = task_loss + losses['recon_loss'] + losses['kl_loss'] + losses['contrastive_loss']
 
                 optimizer.zero_grad()
-                loss.backward()
+                total_loss.backward()
                 optimizer.step()
                 scheduler.step()
 
                 # update loss and accuracy
                 batch_num += 1
-                running_loss += loss.item()
+                running_loss += total_loss.item()
                 train_loss = running_loss/batch_num
                 # accuracy
                 predictions = logits.argmax(dim=-1)
@@ -475,7 +481,7 @@ def train_with_curriculum(
                 tepoch.set_postfix(loss=train_loss, accuracy=train_accuracy)
                 step += 1
 
-                if step % (total_steps // 100) == 0 or step == total_steps:
+                if step % (total_steps // epoch) == 0 or step == total_steps:
                     best_val_loss, saving_version = validation_loop(
                         model,
                         valloader,

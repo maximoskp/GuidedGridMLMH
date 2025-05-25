@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset
-from GridMLM_tokenizers import CSGridMLMTokenizer
+from GridMLM_tokenizers import GuidedGridMLMTokenizer
 import os
 import numpy as np
 from music21 import converter, note, chord, harmony, meter, stream
@@ -163,6 +163,7 @@ class GuidedGridMLMDataset(Dataset):
         if self.frontloading:
             # check if file exists and load it
             if frontloaded_file is not None and os.path.isfile(frontloaded_file):
+                print('Loading data file.')
                 with open(frontloaded_file, 'rb') as f:
                     self.encoded = pickle.load(f)
             else:
@@ -171,8 +172,9 @@ class GuidedGridMLMDataset(Dataset):
                 for data_file in tqdm(self.data_files):
                     try:
                         self.encoded.append( self.tokenizer.encode( data_file ) )
-                    except:
+                    except Exception as e: 
                         print('Problem in:', data_file)
+                        print(e)
                 if frontloaded_file is not None:
                     with open(frontloaded_file, 'wb') as f:
                         pickle.dump(self.encoded, f)
@@ -201,7 +203,7 @@ class GuidedGridMLMDataset(Dataset):
     # end getitem
 # end class dataset
 
-def CSGridMLM_collate_fn(batch):
+def GuidedGridMLM_collate_fn(batch):
     """
     batch: list of dataset items, each one like:
         {
@@ -209,17 +211,20 @@ def CSGridMLM_collate_fn(batch):
             'attention_mask': List[int],
             'time_sig': List[int],
             'pianoroll': np.ndarray of shape (140, fixed_length)
+            'features': List[float]
         }
     """
     input_ids = [torch.tensor(item['input_ids'], dtype=torch.long) for item in batch]
     attention_mask = [torch.tensor(item['attention_mask'], dtype=torch.long) for item in batch]
     time_signature = [torch.tensor(item['time_signature'], dtype=torch.float) for item in batch]
     pianorolls = [torch.tensor(item['pianoroll'], dtype=torch.float) for item in batch]
+    features = [torch.tensor(item['features'], dtype=torch.float) for item in batch]
 
     return {
         'input_ids': torch.stack(input_ids),  # shape: (B, L)
         'attention_mask': torch.stack(attention_mask),  # shape: (B, L)
         'time_signature': torch.stack(time_signature),  # shape: (B, whatever dim)
         'pianoroll': torch.stack(pianorolls),  # shape: (B, 140, T)
+        'features': torch.stack(features) # shape: (B, F)
     }
-# end CSGridMLM_collate_fn
+# end GuidedGridMLM_collate_fn:
