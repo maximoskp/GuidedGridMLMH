@@ -150,7 +150,7 @@ def compute_normalized_token_entropy(logits, target_ids, pad_token_id=None):
 
 
 class GuidedGridMLMDataset(Dataset):
-    def __init__(self, root_dir, tokenizer, fixed_length=512, frontloading=True, frontloaded_file=None):
+    def __init__(self, root_dir, tokenizer, fixed_length=512, frontloading=True, refrontload=False):
         self.data_files = []
         for dirpath, _, filenames in os.walk(root_dir):
             for file in filenames:
@@ -162,7 +162,9 @@ class GuidedGridMLMDataset(Dataset):
         self.frontloading = frontloading
         if self.frontloading:
             # check if file exists and load it
-            if frontloaded_file is not None and os.path.isfile(frontloaded_file):
+            root_dir = root_dir[:-1] if root_dir[-1] == '/' else root_dir
+            frontloaded_file = root_dir + '.pickle'
+            if not refrontload and os.path.isfile(frontloaded_file):
                 print('Loading data file.')
                 with open(frontloaded_file, 'rb') as f:
                     self.encoded = pickle.load(f)

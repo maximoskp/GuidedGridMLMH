@@ -189,7 +189,7 @@ def get_stage_uniform(epoch, max_epoch, max_stage):
 def validation_loop(model, valloader, mask_token_id, loss_fn, epoch, step, \
                     curriculum_type, train_loss, train_accuracy, \
                     train_perplexity, train_token_entropy,
-                    best_val_loss, saving_version, results_path=None, transformer_path=None):
+                    best_val_loss, saving_version, results_path=None, transformer_path=None,tqdm_position=0):
     device = model.device
     model.eval()
     with torch.no_grad():
@@ -203,8 +203,8 @@ def validation_loop(model, valloader, mask_token_id, loss_fn, epoch, step, \
         running_token_entropy = 0
         val_token_entropy = 0
         print('validation')
-        with tqdm(valloader, unit='batch') as tepoch:
-            tepoch.set_description(f'Epoch {epoch}/{step}| val')
+        with tqdm(valloader, unit='batch', position=tqdm_position) as tepoch:
+            tepoch.set_description(f'Epoch {epoch}@{step}| val_{curriculum_type[:2]}')
             for batch in tepoch:
                 perplexity_metric.reset()
                 melody_grid = batch["pianoroll"].to(device)           # (B, 256, 140)
@@ -396,6 +396,8 @@ def train_with_curriculum(
     curriculum_type='random',  # 'random', 'base2'
     results_path=None,
     transformer_path=None,
+    tqdm_position=0,
+    validations_per_epoch=1
 ):
     device = next(model.parameters()).device
     perplexity_metric.to(device)
@@ -428,8 +430,8 @@ def train_with_curriculum(
         running_token_entropy = 0
         train_token_entropy = 0
 
-        with tqdm(trainloader, unit='batch') as tepoch:
-            tepoch.set_description(f'Epoch {epoch}/{step} | trn')
+        with tqdm(trainloader, unit='batch', position=tqdm_position) as tepoch:
+            tepoch.set_description(f'Epoch {epoch}@{step} | trn_{curriculum_type[:2]}')
             for batch in tepoch:
                 perplexity_metric.reset()
                 model.train()
@@ -481,7 +483,7 @@ def train_with_curriculum(
                 tepoch.set_postfix(loss=train_loss, accuracy=train_accuracy)
                 step += 1
 
-                if step % (total_steps // epoch) == 0 or step == total_steps:
+                if step % (total_steps // (epochs*validations_per_epoch)) == 0 or step == total_steps:
                     best_val_loss, saving_version = validation_loop(
                         model,
                         valloader,
@@ -497,5 +499,6 @@ def train_with_curriculum(
                         best_val_loss,
                         saving_version,
                         results_path=results_path,
-                        transformer_path=transformer_path
+                        transformer_path=transformer_path,
+                        tqdm_position=tqdm_position
                     )

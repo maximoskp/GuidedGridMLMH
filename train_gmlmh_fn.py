@@ -13,7 +13,8 @@ def train_gmlmh(
         epochs= 10,
         lr=5e-5,
         curriculum_type='base2',
-        device_name='cpu'
+        device_name='cpu',
+        tqdm_position=0
     ):
 
     loss_fn=CrossEntropyLoss(ignore_index=-100)
@@ -35,7 +36,7 @@ def train_gmlmh(
     encoder_cfg = {
         'nhead': 8,
         'num_layers': 8,
-        'stage_embedding_dim': 18,
+        'stage_embedding_dim': 64,
         'max_stages': 10
     }
     model = GuidedMLMH(
@@ -43,7 +44,7 @@ def train_gmlmh(
         encoder_cfg=encoder_cfg,
         chord_vocab_size=len(tokenizer.vocab),
         d_model=512,
-        conditioning_dim=18,
+        conditioning_dim=16,
         pianoroll_dim=100,
         grid_length=256,
         guidance_dim=128,
@@ -69,5 +70,6 @@ def train_gmlmh(
         curriculum_type=curriculum_type,  # 'random', 'base2'
         results_path=results_path,
         transformer_path=transformer_path,
+        tqdm_position=tqdm_position
     )
 # end train_gmlmh

@@ -4,10 +4,10 @@ from torch.utils.data import DataLoader
 from GridMLM_tokenizers import GuidedGridMLMTokenizer
 import multiprocessing
 
-# train_dir = '/media/maindisk/maximos/data/hooktheory_train'
-# val_dir = '/media/maindisk/maximos/data/hooktheory_test'
-train_dir = '/media/maindisk/maximos/data/gjt'
-val_dir = '/media/maindisk/maximos/data/gjt'
+train_dir = '/media/maindisk/data/hooktheory/hooktheory_train'
+val_dir = '/media/maindisk/data/hooktheory/hooktheory_test'
+# train_dir = '/media/maindisk/data/gjt_melodies/gjt'
+# val_dir = '/media/maindisk/data/gjt_melodies/gjt'
 
 batchsize = 32
 
@@ -41,8 +41,8 @@ if __name__ == "__main__":
     # Load your heavy objects ONCE
     tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
 
-    train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloaded_file='data/' + train_dir.split('/')[-1] + '.pickle')
-    val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloaded_file='data/' + val_dir.split('/')[-1] + '.pickle')
+    train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
+    val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
 
     trainloader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True, collate_fn=GuidedGridMLM_collate_fn)
     valloader = DataLoader(val_dataset, batch_size=batchsize, shuffle=False, collate_fn=GuidedGridMLM_collate_fn)
@@ -52,15 +52,19 @@ if __name__ == "__main__":
             'subfolder': 'CA',
             'epochs': 50,
             'lr': 5e-5,
-            'curriculum_type': 'base2',
-            'device_name': 'cuda:0'
+            'curriculum_type': 'random',
+            'device_name': 'cuda:1',
+            'tqdm_position': 1,
+            'validations_per_epoch': 1
         },
         {
             'subfolder': 'CA',
             'epochs': 50,
             'lr': 5e-5,
-            'curriculum_type': 'random',
-            'device_name': 'cuda:1'
+            'curriculum_type': 'base2',
+            'device_name': 'cuda:0',
+            'tqdm_position': 0,
+            'validations_per_epoch': 1
         },
     ]
 

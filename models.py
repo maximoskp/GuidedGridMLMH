@@ -37,7 +37,8 @@ class GuidanceVAE(nn.Module):
     # end parametrize
 
     def decode(self, z):
-        z_seq = self.latent_to_seq_proj(z).unsqueeze(1).repeat(1, self.seq_len, 1)
+        # z_seq = self.latent_to_seq_proj(z).unsqueeze(1).repeat(1, self.seq_len, 1)
+        z_seq = z.unsqueeze(1).repeat(1, self.seq_len, 1)
         output, _ = self.decoder_rnn(z_seq)
         return self.recon_proj(output)
     # end decode
@@ -78,7 +79,7 @@ class GridMLMMelHarmEncoder(nn.Module):
         full_seq = self.input_norm(full_seq)
         encoded = self.encoder(full_seq)
         encoded = self.output_norm(encoded)
-        return self.output_head(encoded[:, -encoded.size(1)//3:, :])
+        return self.output_head(encoded[:, -256:, :])
     # end forward
 # end class GridMLMMelHarmEncoder
 
@@ -139,7 +140,7 @@ class GuidedMLMH(nn.Module):
         z_dmodel = self.guidance_to_dmodel(z)
         z_dmodel = z_dmodel.unsqueeze(1)  # (B, 1, D)
         if self.unfold_latent:
-            z_seq = z_dmodel.unsqueeze(1).repeat(1, self.seq_len, 1)
+            z_seq = z_dmodel.repeat(1, self.seq_len, 1)
         else:
             z_seq = torch.zeros_like(input_seq)
             z_seq[:, 0:1, :] = z_dmodel
