@@ -15,7 +15,8 @@ def train_gmlmh(
         curriculum_type='base2',
         device_name='cpu',
         tqdm_position=0,
-        validations_per_epoch=1
+        validations_per_epoch=1,
+        loss_scheme='all'
     ):
 
     loss_fn=CrossEntropyLoss(ignore_index=-100)
@@ -59,12 +60,12 @@ def train_gmlmh(
     # save results
     os.makedirs('results/', exist_ok=True)
     os.makedirs('results/' + subfolder + '/', exist_ok=True)
-    results_path = 'results/' + subfolder + '/' + curriculum_type + '.csv'
+    results_path = 'results/' + subfolder + '/' + curriculum_type + '_' + loss_scheme + '.csv'
     
     os.makedirs('saved_models/', exist_ok=True)
     os.makedirs('saved_models/' + subfolder + '/', exist_ok=True)
     save_dir = 'saved_models/' + subfolder + '/'
-    transformer_path = save_dir + curriculum_type + '.pt'
+    transformer_path = save_dir + curriculum_type + '_' + loss_scheme + '.pt'
 
     train_with_curriculum(
         model, optimizer, trainloader, valloader, loss_fn, tokenizer.mask_token_id,
@@ -73,6 +74,7 @@ def train_gmlmh(
         results_path=results_path,
         transformer_path=transformer_path,
         tqdm_position=tqdm_position,
-        validations_per_epoch=validations_per_epoch
+        validations_per_epoch=validations_per_epoch,
+        loss_scheme=loss_scheme
     )
 # end train_gmlmh

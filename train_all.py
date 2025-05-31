@@ -9,7 +9,7 @@ import multiprocessing
 train_dir = '/media/maindisk/data/gjt_melodies/gjt'
 val_dir = '/media/maindisk/data/gjt_melodies/gjt'
 
-batchsize = 32
+batchsize = 8
 
 tokenizer = None
 
@@ -53,18 +53,80 @@ if __name__ == "__main__":
             'epochs': 50,
             'lr': 5e-5,
             'curriculum_type': 'random',
-            'device_name': 'cuda:1',
+            'device_name': 'cuda:0',
             'tqdm_position': 0,
-            'validations_per_epoch': 1
+            'validations_per_epoch': 1,
+            'loss_scheme': 'all'
+        },
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'random',
+            'device_name': 'cuda:0',
+            'tqdm_position': 1,
+            'validations_per_epoch': 1,
+            'loss_scheme': 'kl'
+        },
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'random',
+            'device_name': 'cuda:0',
+            'tqdm_position': 2,
+            'validations_per_epoch': 1,
+            'loss_scheme': 'rec'
+        },
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'random',
+            'device_name': 'cuda:0',
+            'tqdm_position': 3,
+            'validations_per_epoch': 1,
+            'loss_scheme': 'con'
         },
         {
             'subfolder': 'CA',
             'epochs': 50,
             'lr': 5e-5,
             'curriculum_type': 'base2',
-            'device_name': 'cuda:0',
-            'tqdm_position': 1,
-            'validations_per_epoch': 1
+            'device_name': 'cuda:1',
+            'tqdm_position': 4,
+            'validations_per_epoch': 1,
+            'loss_scheme': 'all'
+        },
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'base2',
+            'device_name': 'cuda:1',
+            'tqdm_position': 5,
+            'validations_per_epoch': 1,
+            'loss_scheme': 'kl'
+        },
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'base2',
+            'device_name': 'cuda:1',
+            'tqdm_position': 6,
+            'validations_per_epoch': 1,
+            'loss_scheme': 'rec'
+        },
+        {
+            'subfolder': 'CA',
+            'epochs': 50,
+            'lr': 5e-5,
+            'curriculum_type': 'base2',
+            'device_name': 'cuda:1',
+            'tqdm_position': 7,
+            'validations_per_epoch': 1,
+            'loss_scheme': 'con'
         },
     ]
 
