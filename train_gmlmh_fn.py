@@ -14,7 +14,8 @@ def train_gmlmh(
         lr=5e-5,
         curriculum_type='base2',
         device_name='cpu',
-        tqdm_position=0
+        tqdm_position=0,
+        validations_per_epoch=1
     ):
 
     loss_fn=CrossEntropyLoss(ignore_index=-100)
@@ -30,7 +31,8 @@ def train_gmlmh(
         'input_dim': 512,
         'hidden_dim': 256,
         'latent_dim': 128,
-        'seq_len': 513,
+        'embedding_dim': 64,
+        'seq_len': 256,
         'feature_dim': 37,
     }
     encoder_cfg = {
@@ -70,6 +72,7 @@ def train_gmlmh(
         curriculum_type=curriculum_type,  # 'random', 'base2'
         results_path=results_path,
         transformer_path=transformer_path,
-        tqdm_position=tqdm_position
+        tqdm_position=tqdm_position,
+        validations_per_epoch=validations_per_epoch
     )
 # end train_gmlmh

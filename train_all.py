@@ -4,10 +4,10 @@ from torch.utils.data import DataLoader
 from GridMLM_tokenizers import GuidedGridMLMTokenizer
 import multiprocessing
 
-train_dir = '/media/maindisk/data/hooktheory/hooktheory_train'
-val_dir = '/media/maindisk/data/hooktheory/hooktheory_test'
-# train_dir = '/media/maindisk/data/gjt_melodies/gjt'
-# val_dir = '/media/maindisk/data/gjt_melodies/gjt'
+# train_dir = '/media/maindisk/data/hooktheory/hooktheory_train'
+# val_dir = '/media/maindisk/data/hooktheory/hooktheory_test'
+train_dir = '/media/maindisk/data/gjt_melodies/gjt'
+val_dir = '/media/maindisk/data/gjt_melodies/gjt'
 
 batchsize = 32
 
@@ -54,7 +54,7 @@ if __name__ == "__main__":
             'lr': 5e-5,
             'curriculum_type': 'random',
             'device_name': 'cuda:1',
-            'tqdm_position': 1,
+            'tqdm_position': 0,
             'validations_per_epoch': 1
         },
         {
@@ -63,7 +63,7 @@ if __name__ == "__main__":
             'lr': 5e-5,
             'curriculum_type': 'base2',
             'device_name': 'cuda:0',
-            'tqdm_position': 0,
+            'tqdm_position': 1,
             'validations_per_epoch': 1
         },
     ]

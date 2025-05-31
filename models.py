@@ -3,27 +3,37 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class GuidanceVAE(nn.Module):
-    def __init__(self, input_dim, hidden_dim, latent_dim, seq_len, feature_dim, device='cpu'):
+    def __init__(
+            self,
+            input_dim,
+            hidden_dim,
+            latent_dim,
+            embedding_dim,
+            seq_len,
+            feature_dim,
+            chord_vocab_size,
+            device='cpu'
+        ):
         super().__init__()
         self.device = device
         self.seq_len = seq_len
         self.latent_dim = latent_dim
         self.input_dim = input_dim
 
-        self.encoder_rnn = nn.LSTM(input_dim, hidden_dim, batch_first=True)
+        self.embedding = nn.Embedding(chord_vocab_size, embedding_dim, device=device)
+        self.encoder_rnn = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
         self.mu_proj = nn.Linear(hidden_dim, latent_dim)
         self.logvar_proj = nn.Linear(hidden_dim, latent_dim)
 
         self.decoder_rnn = nn.LSTM(latent_dim, hidden_dim, batch_first=True)
-        self.recon_proj = nn.Linear(hidden_dim, input_dim)
-
-        self.latent_to_seq_proj = nn.Linear(latent_dim, input_dim)
+        self.recon_proj = nn.Linear(hidden_dim, chord_vocab_size)
 
         self.feature_proj = nn.Linear(latent_dim, feature_dim)
     # end init
 
-    def encode(self, x):
-        _, (h_n, _) = self.encoder_rnn(x)
+    def encode(self, harmony_tokens):
+        emb = self.embedding(harmony_tokens)  # (B, L, E)
+        _, (h_n, _) = self.encoder_rnn(emb)
         h = h_n.squeeze(0)
         mu = self.mu_proj(h)
         logvar = self.logvar_proj(h)
@@ -37,13 +47,12 @@ class GuidanceVAE(nn.Module):
     # end parametrize
 
     def decode(self, z):
-        # z_seq = self.latent_to_seq_proj(z).unsqueeze(1).repeat(1, self.seq_len, 1)
         z_seq = z.unsqueeze(1).repeat(1, self.seq_len, 1)
         output, _ = self.decoder_rnn(z_seq)
         return self.recon_proj(output)
     # end decode
-    def forward(self, x):
-        mu, logvar = self.encode(x)
+    def forward(self, harmony_tokens):
+        mu, logvar = self.encode(harmony_tokens)
         z = self.reparameterize(mu, logvar)
         recon_x = self.decode(z)
         z_proj = self.feature_proj(z)
@@ -100,18 +109,21 @@ class GuidedMLMH(nn.Module):
         self.guidance_to_dmodel = nn.Linear(guidance_dim, d_model, device=device)
         self.pos_embedding = nn.Parameter(torch.randn(1, self.seq_len, d_model))
 
-        self.vae = GuidanceVAE(**vae_cfg, device=device)
+        self.vae = GuidanceVAE(**vae_cfg, chord_vocab_size=chord_vocab_size, device=device)
         self.encoder = GridMLMMelHarmEncoder(chord_vocab_size=chord_vocab_size, d_model=d_model,
                                              **encoder_cfg, device=device)
 
-        self.recon_loss_fn = nn.MSELoss()
+        self.recon_loss_fn = nn.CrossEntropyLoss()
         self.contrastive_margin = 1.0
         self.guidance_dim = guidance_dim
     # end init
 
-    def compute_losses(self, input_seq, recon_seq, mu, logvar,
+    def compute_losses(self, harmony_tokens, recon_seq, mu, logvar,
                        z_proj, handcrafted_features):
-        recon_loss = self.recon_loss_fn(recon_seq, input_seq)
+        # Input: (B, L) target tokens
+        # Output: (B, L, V) predictions
+        recon_seq = recon_seq.permute(0, 2, 1)  # (B, V, L) for CrossEntropyLoss
+        recon_loss = self.recon_loss_fn(recon_seq, harmony_tokens)
         kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
         z_norm = F.normalize(z_proj, dim=-1)
         feats_norm = F.normalize(handcrafted_features, dim=-1)
@@ -136,9 +148,9 @@ class GuidedMLMH(nn.Module):
         input_seq = torch.cat([cond_emb, melody_emb, harmony_emb], dim=1)
         input_seq += self.pos_embedding[:, :input_seq.size(1), :]
 
-        z, mu, logvar, recon_seq, z_proj = self.vae(input_seq.detach()) # TODO: do we need to detach?
-        z_dmodel = self.guidance_to_dmodel(z)
-        z_dmodel = z_dmodel.unsqueeze(1)  # (B, 1, D)
+        z, mu, logvar, recon_seq, z_proj = self.vae(harmony_tokens) # TODO: do we need to detach?
+
+        z_dmodel = self.guidance_to_dmodel(z).unsqueeze(1)  # (B, 1, D)
         if self.unfold_latent:
             z_seq = z_dmodel.repeat(1, self.seq_len, 1)
         else:
@@ -151,7 +163,7 @@ class GuidedMLMH(nn.Module):
         harmony_output = self.encoder(guided_seq, stage_indices)
 
         recon_loss, kl_loss, contrastive_loss = self.compute_losses(
-            input_seq, recon_seq, mu, logvar, z_proj, handcrafted_features)
+            harmony_tokens, recon_seq, mu, logvar, z_proj, handcrafted_features)
 
         return harmony_output, {
             'recon_loss': recon_loss,
