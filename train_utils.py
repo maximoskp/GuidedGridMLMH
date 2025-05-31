@@ -235,13 +235,23 @@ def validation_loop(model, valloader, mask_token_id, loss_fn, epoch, step, \
                     conditioning_vec,
                     melody_grid,
                     harmony_input,
+                    harmony_gt,
                     stage_indices,
                     features
                 )
-
-                # Compute loss only on masked tokens
+                
                 task_loss = loss_fn(logits.view(-1, logits.size(-1)), harmony_target.view(-1))
-                total_loss = task_loss + losses['recon_loss'] + losses['kl_loss'] + losses['contrastive_loss']
+                # ['all', 'kl', 'rec', 'con']
+                if loss_scheme == 'all':
+                    total_loss = task_loss + losses['recon_loss'] + losses['kl_loss'] + losses['contrastive_loss']
+                elif loss_scheme == 'kl':
+                    total_loss = task_loss + losses['kl_loss']
+                elif loss_scheme == 'rec':
+                    total_loss = task_loss + losses['recon_loss'] + losses['kl_loss']
+                elif loss_scheme == 'con':
+                    total_loss = task_loss + losses['kl_loss'] + losses['contrastive_loss']
+                else:
+                    print('loss_scheme undefined:', loss_scheme)
 
                 # update loss and accuracy
                 batch_num += 1
@@ -367,6 +377,7 @@ def train_with_curriculum(
                     conditioning_vec,
                     melody_grid,
                     harmony_input,
+                    harmony_gt,
                     stage_indices,
                     handcrafted_feats
                 )

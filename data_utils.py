@@ -164,11 +164,7 @@ class GuidedGridMLMDataset(Dataset):
             # check if file exists and load it
             root_dir = root_dir[:-1] if root_dir[-1] == '/' else root_dir
             frontloaded_file = root_dir + '.pickle'
-            if not refrontload and os.path.isfile(frontloaded_file):
-                print('Loading data file.')
-                with open(frontloaded_file, 'rb') as f:
-                    self.encoded = pickle.load(f)
-            else:
+            if refrontload or not os.path.isfile(frontloaded_file):
                 print('Frontloading data.')
                 self.encoded = []
                 for data_file in tqdm(self.data_files):
@@ -180,6 +176,10 @@ class GuidedGridMLMDataset(Dataset):
                 if frontloaded_file is not None:
                     with open(frontloaded_file, 'wb') as f:
                         pickle.dump(self.encoded, f)
+            else:
+                print('Loading data file.')
+                with open(frontloaded_file, 'rb') as f:
+                    self.encoded = pickle.load(f)
     # end init
 
     def __len__(self):

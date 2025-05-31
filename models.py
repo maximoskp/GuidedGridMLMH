@@ -133,7 +133,7 @@ class GuidedMLMH(nn.Module):
         return recon_loss, kl_loss, contrastive_loss
     # end compute_losses
 
-    def forward(self, conditioning_vec, melody_grid, harmony_tokens,
+    def forward(self, conditioning_vec, melody_grid, harmony_tokens, full_harmony,
                 stage_indices, handcrafted_features):
         B = conditioning_vec.size(0)
 
@@ -148,7 +148,7 @@ class GuidedMLMH(nn.Module):
         input_seq = torch.cat([cond_emb, melody_emb, harmony_emb], dim=1)
         input_seq += self.pos_embedding[:, :input_seq.size(1), :]
 
-        z, mu, logvar, recon_seq, z_proj = self.vae(harmony_tokens) # TODO: do we need to detach?
+        z, mu, logvar, recon_seq, z_proj = self.vae(full_harmony) # TODO: do we need to detach?
 
         z_dmodel = self.guidance_to_dmodel(z).unsqueeze(1)  # (B, 1, D)
         if self.unfold_latent:

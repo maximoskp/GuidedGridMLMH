@@ -6,8 +6,11 @@ import multiprocessing
 
 # train_dir = '/media/maindisk/data/hooktheory/hooktheory_train'
 # val_dir = '/media/maindisk/data/hooktheory/hooktheory_test'
-train_dir = '/media/maindisk/data/gjt_melodies/gjt'
-val_dir = '/media/maindisk/data/gjt_melodies/gjt'
+
+train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
+val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
+# train_dir = '/media/maindisk/data/gjt_melodies/gjt'
+# val_dir = '/media/maindisk/data/gjt_melodies/gjt'
 
 batchsize = 8
 
