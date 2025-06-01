@@ -6,11 +6,20 @@ import multiprocessing
 
 # train_dir = '/media/maindisk/data/hooktheory/hooktheory_train'
 # val_dir = '/media/maindisk/data/hooktheory/hooktheory_test'
-
-train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
-val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 # train_dir = '/media/maindisk/data/gjt_melodies/gjt'
 # val_dir = '/media/maindisk/data/gjt_melodies/gjt'
+
+# subfolder = 'CA'
+# epochs = 50
+# validations_per_epoch = 1
+# train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
+# val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
+
+subfolder = 'all12'
+epochs = 5
+validations_per_epoch = 10
+train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_train'
+val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_test'
 
 batchsize = 8
 
@@ -52,83 +61,83 @@ if __name__ == "__main__":
 
     task_args = [
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
             'device_name': 'cuda:0',
             'tqdm_position': 0,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'all'
         },
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
             'device_name': 'cuda:0',
             'tqdm_position': 1,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'kl'
         },
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
             'device_name': 'cuda:0',
             'tqdm_position': 2,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'rec'
         },
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
             'device_name': 'cuda:0',
             'tqdm_position': 3,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'con'
         },
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'base2',
             'device_name': 'cuda:1',
             'tqdm_position': 4,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'all'
         },
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'base2',
             'device_name': 'cuda:1',
             'tqdm_position': 5,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'kl'
         },
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'base2',
             'device_name': 'cuda:1',
             'tqdm_position': 6,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'rec'
         },
         {
-            'subfolder': 'CA',
-            'epochs': 50,
+            'subfolder': subfolder,
+            'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'base2',
             'device_name': 'cuda:1',
             'tqdm_position': 7,
-            'validations_per_epoch': 1,
+            'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'con'
         },
     ]
