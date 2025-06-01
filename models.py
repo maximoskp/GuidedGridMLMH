@@ -171,4 +171,9 @@ class GuidedMLMH(nn.Module):
             'contrastive_loss': contrastive_loss
         }
     # end forward
+
+    def get_z_from_harmony(self, full_harmony):
+        z, _, _, _, _ = self.vae(full_harmony)
+        return z
+    # end get_z_from_harmony
 # end class GuidedMLMH
