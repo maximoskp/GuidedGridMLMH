@@ -96,7 +96,7 @@ class GuidedMLMH(nn.Module):
     def __init__(self, vae_cfg, encoder_cfg,
                  chord_vocab_size, d_model,
                  conditioning_dim, pianoroll_dim, grid_length,
-                 guidance_dim, unfold_latent=False, device='cpu'):
+                 guidance_dim, unfold_latent=True, device='cpu'):
         super().__init__()
         self.device = device
         self.grid_length = grid_length
@@ -133,8 +133,8 @@ class GuidedMLMH(nn.Module):
         return recon_loss, kl_loss, contrastive_loss
     # end compute_losses
 
-    def forward(self, conditioning_vec, melody_grid, harmony_tokens, full_harmony,
-                stage_indices, handcrafted_features):
+    def forward(self, conditioning_vec, melody_grid, harmony_tokens, guiding_harmony,
+                stage_indices, handcrafted_features=None):
         B = conditioning_vec.size(0)
 
         cond_emb = self.condition_proj(conditioning_vec).unsqueeze(1)
@@ -148,7 +148,7 @@ class GuidedMLMH(nn.Module):
         input_seq = torch.cat([cond_emb, melody_emb, harmony_emb], dim=1)
         input_seq += self.pos_embedding[:, :input_seq.size(1), :]
 
-        z, mu, logvar, recon_seq, z_proj = self.vae(full_harmony) # TODO: do we need to detach?
+        z, mu, logvar, recon_seq, z_proj = self.vae(guiding_harmony) # TODO: do we need to detach?
 
         z_dmodel = self.guidance_to_dmodel(z).unsqueeze(1)  # (B, 1, D)
         if self.unfold_latent:
@@ -161,15 +161,17 @@ class GuidedMLMH(nn.Module):
         guided_seq = input_seq + z_seq
 
         harmony_output = self.encoder(guided_seq, stage_indices)
+        if handcrafted_features is not None:
+            recon_loss, kl_loss, contrastive_loss = self.compute_losses(
+                harmony_tokens, recon_seq, mu, logvar, z_proj, handcrafted_features)
 
-        recon_loss, kl_loss, contrastive_loss = self.compute_losses(
-            harmony_tokens, recon_seq, mu, logvar, z_proj, handcrafted_features)
-
-        return harmony_output, {
-            'recon_loss': recon_loss,
-            'kl_loss': kl_loss,
-            'contrastive_loss': contrastive_loss
-        }
+            return harmony_output, {
+                'recon_loss': recon_loss,
+                'kl_loss': kl_loss,
+                'contrastive_loss': contrastive_loss
+            }
+        else:
+            return harmony_output
     # end forward
 
     def get_z_from_harmony(self, full_harmony):
