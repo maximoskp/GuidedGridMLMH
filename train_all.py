@@ -10,17 +10,17 @@ import multiprocessing
 # val_dir = '/media/maindisk/data/gjt_melodies/gjt'
 
 # TODO: implement argument forwarding of unfold=True/False in models.py
-subfolder = 'unf_CA'
-epochs = 50
-validations_per_epoch = 1
-train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
-val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
+# subfolder = 'unf_CA'
+# epochs = 50
+# validations_per_epoch = 1
+# train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
+# val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 
-# subfolder = 'all12'
-# epochs = 5
-# validations_per_epoch = 10
-# train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_train'
-# val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_test'
+subfolder = 'unf_all12'
+epochs = 5
+validations_per_epoch = 10
+train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_train'
+val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_test'
 
 batchsize = 8
 
