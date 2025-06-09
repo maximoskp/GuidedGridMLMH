@@ -167,18 +167,18 @@ def overlay_generated_harmony(melody_part, generated_chords, ql_per_16th, skip_s
             filtered_part.insert(el.offset, el)
 
     # Copy notes and rests with offset < 64
-    for el in melody_part.flat.notesAndRests:
+    for el in melody_part.flatten().notesAndRests:
         if el.offset < 64:
             filtered_part.insert(el.offset, el)
+    # clear conflicting rests with notes of the same offset
+    filtered_part = remove_conflicting_rests(filtered_part)
 
     # Replace the original part with the filtered one
     melody_part = filtered_part
-
-    harmonized_part = deepcopy(melody_part)
     
     # Remove old chord symbols
-    for el in harmonized_part.recurse().getElementsByClass(harmony.ChordSymbol):
-        harmonized_part.remove(el)
+    for el in melody_part.recurse().getElementsByClass(harmony.ChordSymbol):
+        melody_part.remove(el)
     
     # Prepare for clamping durations — convert melody to measures
     melody_measures = melody_part.makeMeasures()
@@ -224,6 +224,8 @@ def overlay_generated_harmony(melody_part, generated_chords, ql_per_16th, skip_s
                 break
         # bar = next((b for b in reversed(bars) if b.offset <= offset), None)
 
+        offset = (i + skip_steps) * ql_per_16th
+        
         if bar:
             bar_start = bar.offset
             bar_end = bar_start + bar.barDuration.quarterLength
@@ -240,23 +242,6 @@ def overlay_generated_harmony(melody_part, generated_chords, ql_per_16th, skip_s
         inserted_chords[i] = chord_symbol
         last_chord_symbol = mir_chord
 
-    # Convert flat part to one with measures
-    harmonized_with_measures = harmonized_part.makeMeasures()
-
-    # Repeat previous chord at start of bars with no chord
-    for m in harmonized_with_measures.getElementsByClass(stream.Measure):
-        bar_offset = m.offset
-        # has_chord = any(isinstance(el, harmony.ChordSymbol) and el.offset == bar_offset for el in m)
-        # has_chord = any( isinstance(el, harmony.ChordSymbol) for el in m )
-        has_chord = any(isinstance(el, harmony.ChordSymbol) and el.offset == 0. for el in m)
-        if not has_chord:
-            # Find previous chord before this measure
-            prev_chords = [el for el in harmonized_part.recurse().getElementsByClass(harmony.ChordSymbol)
-                           if el.offset < bar_offset]
-            if prev_chords:
-                prev_chord = prev_chords[-1]
-                m.insert(0.0, deepcopy(prev_chord))
-
     # Repeat previous chord at start of bars with no chord
     for m in chords_part.getElementsByClass(stream.Measure):
         bar_offset = m.offset
@@ -266,8 +251,11 @@ def overlay_generated_harmony(melody_part, generated_chords, ql_per_16th, skip_s
         has_chord = any(isinstance(el, chord.Chord) and el.offset == 0. for el in m)
         if not has_chord:
             # Find previous chord before this measure
-            prev_chords = [el for el in chords_part.recurse().getElementsByClass(chord.Chord)
-                           if el.offset < bar_offset]
+            prev_chords = []
+            for curr_bar in chords_part.recurse().getElementsByClass(stream.Measure):
+                for el in curr_bar.recurse().getElementsByClass(chord.Chord):
+                        if curr_bar.offset + el.offset < bar_offset:
+                            prev_chords.append(el)
             if prev_chords:
                 # Remove any placeholder rests at 0.0
                 for el in m.getElementsByOffset(0.0):
@@ -276,6 +264,10 @@ def overlay_generated_harmony(melody_part, generated_chords, ql_per_16th, skip_s
                 prev_chord = prev_chords[-1]
                 m.insert(0.0, deepcopy(prev_chord))
         else:
+            # Remove any placeholder rests at 0.0
+            for el in m.getElementsByOffset(0.0):
+                if isinstance(el, note.Rest):
+                    m.remove(el)
             # modify duration so that it doesn't affect the next bar
             for el in m.notes:
                 if isinstance(el, chord.Chord):
@@ -285,7 +277,7 @@ def overlay_generated_harmony(melody_part, generated_chords, ql_per_16th, skip_s
 
     # Create final score with chords and melody
     score = stream.Score()
-    score.insert(0, harmonized_with_measures)
+    score.insert(0, melody_measures)
     score.insert(0, chords_part)
 
     return score
@@ -416,4 +408,4 @@ def generate_files_with_base2(model, tokenizer, input_f, guide_f, mxl_folder, mi
     os.system(f'QT_QPA_PLATFORM=offscreen mscore -o {midi_file_name} {mxl_file_name}')
 
     return gen_output_tokens, harmony_real_tokens, harmony_guide_tokens
-    # end generate_files_with_base2
+# end generate_files_with_base2

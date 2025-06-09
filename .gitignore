@@ -6,6 +6,7 @@ MIDIs_back/
 musicXMLs/
 baseline_models/
 saved_tokenizers/
+old/
 
 *.zip
 
