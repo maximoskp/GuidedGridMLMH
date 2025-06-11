@@ -6,6 +6,37 @@ import numpy as np
 from copy import deepcopy
 from models import GuidedMLMH
 import os
+from music_utils import transpose_score
+
+def remove_conflicting_rests(flat_part):
+    """
+    Remove any Rest in a flattened part whose offset coincides with a Note.
+    Assumes the input stream is already flattened.
+    This also tries to fix broken duration values that have come as a result of
+    flattening.
+    """
+    cleaned = stream.Part()
+    all_notes = [el for el in flat_part if isinstance(el, note.Note)]
+    note_offsets = [n.offset for n in all_notes]
+    note_durations = [n.offset for n in all_notes]
+    for i, n in enumerate(all_notes):
+        if n.duration.quarterLength == 0:
+            if i < len(all_notes)-1:
+                n.duration = duration.Duration( note_offsets[i+1] - note_offsets[i] )
+            else:
+                n.duration = duration.Duration( 0.5 )
+        # if i < len(all_notes)-1:
+        #     if note_durations[i] > note_offsets[i+1] - note_offsets[i]:
+        #         n.duration = duration.Duration( note_offsets[i+1] - note_offsets[i] )
+
+    for el in flat_part:
+        # Skip Rest if it shares offset with a Note
+        if isinstance(el, note.Rest) and el.offset in note_offsets:
+            continue
+        cleaned.insert(el.offset, el)
+
+    return cleaned
+# end remove_conflicting_rests
 
 def random_progressive_generate(
     model,
