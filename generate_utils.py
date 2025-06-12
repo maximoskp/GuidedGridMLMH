@@ -49,7 +49,8 @@ def random_progressive_generate(
     strategy='topk',        # 'topk' or 'sample' strategy for selecting new tokens
     pad_token_id=None,      # token ID for <pad>
     nc_token_id=None,       # token ID for <nc>
-    force_fill=True         # disallow <pad>/<nc> before melody ends
+    force_fill=True,        # disallow <pad>/<nc> before melody ends
+    chord_constraints=None  # take input harmony as constraints or generate from scratch
 ):
     device = melody_grid.device
     seq_len = melody_grid.shape[1]
@@ -57,6 +58,9 @@ def random_progressive_generate(
 
     # Start with all tokens masked
     visible_harmony = torch.full((1, seq_len), mask_token_id, dtype=torch.long, device=device)
+    if chord_constraints is not None:
+        idxs  = torch.logical_and( chord_constraints != nc_token_id , chord_constraints != pad_token_id )
+        visible_harmony[ idxs ] = chord_constraints[idxs]
 
     # Find the last index in melody_grid that contains a non-zero value
     if force_fill:
@@ -122,11 +126,15 @@ def structured_progressive_generate(
     strategy='topk',        # 'topk' or 'sample'
     pad_token_id=None,      # token ID for <pad>
     nc_token_id=None,       # token ID for <nc>
-    force_fill=True         # disallow <pad>/<nc> before melody ends
+    force_fill=True,        # disallow <pad>/<nc> before melody ends
+    chord_constraints=None  # take input harmony as constraints or generate from scratch
 ):
     device = melody_grid.device
     seq_len = melody_grid.shape[1]
     visible_harmony = torch.full((1, seq_len), mask_token_id, dtype=torch.long, device=device)
+    if chord_constraints is not None:
+        idxs  = torch.logical_and( chord_constraints != nc_token_id , chord_constraints != pad_token_id )
+        visible_harmony[ idxs ] = chord_constraints[idxs]
 
     # Find the last index in melody_grid that contains a non-zero value
     if force_fill:
@@ -368,7 +376,17 @@ def load_model(
     return model
 # end load_model
 
-def generate_files_with_base2(model, tokenizer, input_f, guide_f, mxl_folder, midi_folder, name_suffix):
+def generate_files_with_base2(
+        model,
+        tokenizer,
+        input_f,
+        guide_f,
+        mxl_folder,
+        midi_folder,
+        name_suffix,
+        use_constraints=False,
+        normalize_tonality=False
+    ):
     pad_token_id = tokenizer.pad_token_id
     nc_token_id = tokenizer.nc_token_id
 
@@ -391,7 +409,8 @@ def generate_files_with_base2(model, tokenizer, input_f, guide_f, mxl_folder, mi
         strategy='sample',
         pad_token_id=pad_token_id,      # token ID for <pad>
         nc_token_id=nc_token_id,       # token ID for <nc>
-        force_fill=True         # disallow <pad>/<nc> before melody ends
+        force_fill=True,         # disallow <pad>/<nc> before melody ends
+        chord_constraints = harmony_real.to(model.device) if use_constraints else None
     )
     gen_output_tokens = []
     for t in base2_generated_harmony[0].tolist():
@@ -411,6 +430,8 @@ def generate_files_with_base2(model, tokenizer, input_f, guide_f, mxl_folder, mi
         input_encoded['ql_per_quantum'],
         input_encoded['skip_steps']
     )
+    if normalize_tonality:
+        gen_score = transpose_score(gen_score, input_encoded['back_interval'])
     mxl_file_name = mxl_folder + f'gen_{name_suffix}' + '.mxl'
     midi_file_name = midi_folder + f'gen_{name_suffix}' + '.mid'
     save_harmonized_score(gen_score, out_path=mxl_file_name)
@@ -440,3 +461,89 @@ def generate_files_with_base2(model, tokenizer, input_f, guide_f, mxl_folder, mi
 
     return gen_output_tokens, harmony_real_tokens, harmony_guide_tokens
 # end generate_files_with_base2
+
+def generate_files_with_random(
+        model,
+        tokenizer,
+        input_f,
+        guide_f,
+        mxl_folder,
+        midi_folder,
+        name_suffix,
+        use_constraints=False,
+        normalize_tonality=False
+    ):
+    pad_token_id = tokenizer.pad_token_id
+    nc_token_id = tokenizer.nc_token_id
+
+    guide_encoded = tokenizer.encode( guide_f )
+    input_encoded = tokenizer.encode( input_f )
+
+    harmony_guide = torch.LongTensor(guide_encoded['input_ids']).reshape(1, len(guide_encoded['input_ids']))
+    harmony_real = torch.LongTensor(input_encoded['input_ids']).reshape(1, len(input_encoded['input_ids']))
+    melody_grid = torch.FloatTensor( input_encoded['pianoroll'] ).reshape( 1, input_encoded['pianoroll'].shape[0], input_encoded['pianoroll'].shape[1] )
+    conditioning_vec = torch.FloatTensor( input_encoded['time_signature'] ).reshape( 1, len(input_encoded['time_signature']) )
+
+    random_generated_harmony = random_progressive_generate(
+        model=model,
+        melody_grid=melody_grid.to(model.device),
+        conditioning_vec=conditioning_vec.to(model.device),
+        guiding_harmony=harmony_guide.to(model.device),
+        num_stages=10,
+        mask_token_id=tokenizer.mask_token_id,
+        temperature=1.0,
+        strategy='sample',
+        pad_token_id=pad_token_id,      # token ID for <pad>
+        nc_token_id=nc_token_id,       # token ID for <nc>
+        force_fill=True,         # disallow <pad>/<nc> before melody ends
+        chord_constraints = harmony_real.to(model.device) if use_constraints else None
+    )
+    gen_output_tokens = []
+    for t in random_generated_harmony[0].tolist():
+        gen_output_tokens.append( tokenizer.ids_to_tokens[t] )
+    # keep ground truth
+    harmony_real_tokens = []
+    for t in harmony_real[0].tolist():
+        harmony_real_tokens.append( tokenizer.ids_to_tokens[t] )
+    # keep guiding harmony
+    harmony_guide_tokens = []
+    for t in harmony_guide[0].tolist():
+        harmony_guide_tokens.append( tokenizer.ids_to_tokens[t] )
+    
+    gen_score = overlay_generated_harmony(
+        input_encoded['melody_part'],
+        gen_output_tokens,
+        input_encoded['ql_per_quantum'],
+        input_encoded['skip_steps']
+    )
+    if normalize_tonality:
+        gen_score = transpose_score(gen_score, input_encoded['back_interval'])
+    mxl_file_name = mxl_folder + f'gen_{name_suffix}' + '.mxl'
+    midi_file_name = midi_folder + f'gen_{name_suffix}' + '.mid'
+    save_harmonized_score(gen_score, out_path=mxl_file_name)
+    os.system(f'QT_QPA_PLATFORM=offscreen mscore -o {midi_file_name} {mxl_file_name}')
+
+    real_score = overlay_generated_harmony(
+        input_encoded['melody_part'],
+        harmony_real_tokens,
+        input_encoded['ql_per_quantum'],
+        input_encoded['skip_steps']
+    )
+    mxl_file_name = mxl_folder + f'real_{name_suffix}' + '.mxl'
+    midi_file_name = midi_folder + f'real_{name_suffix}' + '.mid'
+    save_harmonized_score(real_score, out_path=mxl_file_name)
+    os.system(f'QT_QPA_PLATFORM=offscreen mscore -o {midi_file_name} {mxl_file_name}')
+
+    guide_score = overlay_generated_harmony(
+        guide_encoded['melody_part'],
+        harmony_guide_tokens,
+        guide_encoded['ql_per_quantum'],
+        guide_encoded['skip_steps']
+    )
+    mxl_file_name = mxl_folder + f'guide_{name_suffix}' + '.mxl'
+    midi_file_name = midi_folder + f'guide_{name_suffix}' + '.mid'
+    save_harmonized_score(guide_score, out_path=mxl_file_name)
+    os.system(f'QT_QPA_PLATFORM=offscreen mscore -o {midi_file_name} {mxl_file_name}')
+
+    return gen_output_tokens, harmony_real_tokens, harmony_guide_tokens
+# end generate_files_with_random

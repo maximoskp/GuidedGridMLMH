@@ -66,7 +66,7 @@ if __name__ == "__main__":
             'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
-            'device_name': 'cuda:0',
+            'device_name': 'cuda:2',
             'tqdm_position': 0,
             'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'all'
@@ -76,7 +76,7 @@ if __name__ == "__main__":
             'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
-            'device_name': 'cuda:0',
+            'device_name': 'cuda:2',
             'tqdm_position': 1,
             'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'kl'
@@ -86,7 +86,7 @@ if __name__ == "__main__":
             'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
-            'device_name': 'cuda:0',
+            'device_name': 'cuda:2',
             'tqdm_position': 2,
             'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'rec'
@@ -96,7 +96,7 @@ if __name__ == "__main__":
             'epochs': epochs,
             'lr': 5e-5,
             'curriculum_type': 'random',
-            'device_name': 'cuda:0',
+            'device_name': 'cuda:2',
             'tqdm_position': 3,
             'validations_per_epoch': validations_per_epoch,
             'loss_scheme': 'con'
