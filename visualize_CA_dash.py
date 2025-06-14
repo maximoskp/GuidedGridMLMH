@@ -11,6 +11,8 @@ import plotly.express as px
 import pandas as pd
 import dash
 from dash import dcc, html, Input, Output, State
+from generate_utils import load_model, generate_files_with_base2, generate_files_with_random
+import os
 
 # global
 df = None
@@ -22,6 +24,11 @@ jazz_dir = '/media/maindisk/data/gjt_melodies/gjt_CA'
 subfolder = 'CA'
 curriculum_type='random'
 ablation = 'all'
+
+mxl_folder = 'examples_musicXML/' + subfolder + '/' + curriculum_type + '/' + ablation + '/'
+midi_folder = 'examples_MIDI/' + subfolder + '/' + curriculum_type + '/' + ablation + '/'
+os.makedirs(mxl_folder, exist_ok=True)
+os.makedirs(midi_folder, exist_ok=True)
 
 model_path = 'saved_models/' + subfolder + '/' + curriculum_type + '_' + ablation + '.pt'
 
@@ -162,8 +169,8 @@ def make_figure(selected):
     )
     print(selected)
     if selected:
-        if selected['first'] is not None:
-            row = df.iloc[selected['first']]
+        if selected['melody'] is not None:
+            row = df.iloc[selected['melody']]
             fig.add_scatter(
                 x=[row['x']],
                 y=[row['y']],
@@ -175,12 +182,12 @@ def make_figure(selected):
                     line=dict(color='black', width=2),
                     opacity=1.0
                 ),
-                name='First',
+                name='Melody',
                 showlegend=True
             )
 
-        if selected['second'] is not None:
-            row = df.iloc[selected['second']]
+        if selected['guide'] is not None:
+            row = df.iloc[selected['guide']]
             fig.add_scatter(
                 x=[row['x']],
                 y=[row['y']],
@@ -192,7 +199,7 @@ def make_figure(selected):
                     line=dict(color='black', width=2),
                     opacity=1.0
                 ),
-                name='Second',
+                name='Guide',
                 showlegend=True
             )
     return fig
@@ -206,8 +213,17 @@ app = dash.Dash(__name__)
 
 app.layout = html.Div([
     dcc.Graph(id='scatter-plot', figure=make_figure(None)),
-    dcc.Store(id='selected-points', data={'first': None, 'second': None}),
-    html.Div(id='click-output')  # area to display info on click
+    dcc.Store(id='selected-points', data={'melody': None, 'guide': None}),
+    html.Div([
+        # Left side: Selections info
+        html.Div(id='click-output', style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top'}),
+
+        # Right side: Harmonize button + result
+        html.Div([
+            html.Button("Harmonize", id='harmonize-button', n_clicks=0),
+            html.Div(id='harmonize-output', style={'marginTop': '10px'})
+        ], style={'width': '48%', 'display': 'inline-block', 'verticalAlign': 'top', 'paddingLeft': '20px'})
+    ], style={'display': 'flex', 'justifyContent': 'space-between'})
 ])
 
 @app.callback(
@@ -237,26 +253,48 @@ def handle_click(clickData, selected):
     idx = matching_indices[point_index]
 
     if selected:
-        if selected['first'] is None or selected['first'] == idx:
-            selected['first'] = idx
-        elif selected['second'] is None or selected['second'] == idx:
-            selected['second'] = idx
+        if selected['melody'] is None or selected['melody'] == idx:
+            selected['melody'] = idx
+        elif selected['guide'] is None or selected['guide'] == idx:
+            selected['guide'] = idx
         else:
             # Rotate selection
-            selected['first'], selected['second'] = selected['second'], idx
+            selected['melody'], selected['guide'] = selected['guide'], idx
 
-    token1 = df.iloc[selected['first']]['token'].split('\n') if selected['first'] is not None else ["None"]
-    token2 = df.iloc[selected['second']]['token'].split('\n') if selected['second'] is not None else ["None"]
+    token1 = df.iloc[selected['melody']]['token'].split('\n') if selected['melody'] is not None else ["None"]
+    token2 = df.iloc[selected['guide']]['token'].split('\n') if selected['guide'] is not None else ["None"]
 
     text = html.Div([
-        html.Strong("First:"),
+        html.Strong("Melody:"),
         *[html.Div(line) for line in token1],
         html.Br(),
-        html.Strong("Second:"),
+        html.Strong("Guide:"),
         *[html.Div(line) for line in token2],
     ])
 
     return make_figure(selected), text, selected
+
+@app.callback(
+    Output('harmonize-output', 'children'),
+    Input('harmonize-button', 'n_clicks'),
+    State('selected-points', 'data'),
+    prevent_initial_call=True
+)
+def run_harmonization(n_clicks, selected):
+    if not selected or selected['melody'] is None or selected['guide'] is None:
+        return "Please select both a melody and a guide first."
+    guide_f = data_all[selected['guide']]
+    input_f = data_all[selected['melody']]
+    output = generate_files_with_base2(
+        model=model,
+        tokenizer=tokenizer,
+        input_f=input_f,
+        guide_f=guide_f,
+        mxl_folder=mxl_folder,
+        midi_folder=midi_folder,
+        name_suffix=0
+    )
+    return f"Harmonizing melody {selected['melody']} with guide {selected['guide']}: {output}"
 
 if __name__ == '__main__':
     print('FUN main')
