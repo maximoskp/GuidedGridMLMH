@@ -33,11 +33,16 @@ os.makedirs(midi_folder, exist_ok=True)
 
 model_path = 'saved_models/' + subfolder + '/' + curriculum_type + '_' + ablation + '.pt'
 
-custom_colors = ['#1f77b4', '#ff7f0e', '#d62728']  # blue, orange, red
+custom_colors = ["#42b41f", "#0e2eff", '#d62728']  # blue, orange, red
 symbol_map = {
     '0': 'circle',
     '1': 'circle',
-    '2': 'square'  # for harmonized points
+    '2': 'diamond'  # for harmonized points
+}
+size_map = {
+    '0': 10,
+    '1': 10,
+    '2': 15  # larger for harmonized points
 }
 
 if device_name == 'cpu':
@@ -153,6 +158,7 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
     df['hover_text'] = df['token'].str.replace('\n', '<br>')
     df['class_str'] = df['class'].astype(str)
     df['symbol'] = df['class_str'].map(symbol_map)
+    df['size'] = df['class_str'].map(size_map)
 # end apply_pca
 
 def make_figure(selected):
@@ -165,8 +171,11 @@ def make_figure(selected):
         y='y',
         color='class_str',
         symbol='symbol',
+        # size='size',
+        # size_max=10,
         hover_data=None,
-        color_discrete_sequence=custom_colors
+        color_discrete_sequence=custom_colors,
+        symbol_sequence=list(symbol_map.values())
     )
 
     fig.update_layout(
@@ -204,7 +213,7 @@ def make_figure(selected):
                 marker=dict(
                     color='green',
                     size=16,
-                    symbol='diamond',
+                    symbol='star',
                     line=dict(color='black', width=2),
                     opacity=1.0
                 ),
@@ -338,7 +347,9 @@ def run_harmonization(n_clicks, selected):
         'class': 2,
         'token': gen_output_tokens,
         'hover_text': txt,
-        'class_str': '2'
+        'class_str': '2',
+        'symbol': symbol_map['2'],
+        'size': size_map['2']
     }
     print(z_pca)
     df = pd.concat([df, pd.DataFrame([new_point])], ignore_index=True)
