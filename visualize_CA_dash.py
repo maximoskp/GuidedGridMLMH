@@ -11,12 +11,13 @@ import plotly.express as px
 import pandas as pd
 import dash
 from dash import dcc, html, Input, Output, State
-from generate_utils import load_model, generate_files_with_base2, generate_files_with_random
+from generate_utils import load_model, structured_progressive_generate
 import os
 
 # global
 df = None
 data_all = None
+pca = None
 
 device_name = 'cuda:0'
 val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
@@ -32,7 +33,12 @@ os.makedirs(midi_folder, exist_ok=True)
 
 model_path = 'saved_models/' + subfolder + '/' + curriculum_type + '_' + ablation + '.pt'
 
-custom_colors = ['#1f77b4', '#ff7f0e']  # blue and orange
+custom_colors = ['#1f77b4', '#ff7f0e', '#d62728']  # blue, orange, red
+symbol_map = {
+    '0': 'circle',
+    '1': 'circle',
+    '2': 'square'  # for harmonized points
+}
 
 if device_name == 'cpu':
         device = torch.device('cpu')
@@ -109,6 +115,7 @@ def condenced_str_from_token_ids(inp_ids, tokenizer):
 # end condenced_str_from_token_ids
 
 def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
+    global pca
     print('FUN apply_pca')
     zs = []
     z_idxs = []
@@ -145,6 +152,7 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
 
     df['hover_text'] = df['token'].str.replace('\n', '<br>')
     df['class_str'] = df['class'].astype(str)
+    df['symbol'] = df['class_str'].map(symbol_map)
 # end apply_pca
 
 def make_figure(selected):
@@ -156,6 +164,7 @@ def make_figure(selected):
         x='x',
         y='y',
         color='class_str',
+        symbol='symbol',
         hover_data=None,
         color_discrete_sequence=custom_colors
     )
@@ -227,7 +236,7 @@ app.layout = html.Div([
 ])
 
 @app.callback(
-    Output('scatter-plot', 'figure'),
+    Output('scatter-plot', 'figure', allow_duplicate=True),
     Output('click-output', 'children'),
     Output('selected-points', 'data'),
     Input('scatter-plot', 'clickData'),
@@ -275,26 +284,65 @@ def handle_click(clickData, selected):
     return make_figure(selected), text, selected
 
 @app.callback(
+    Output('scatter-plot', 'figure', allow_duplicate=True),
     Output('harmonize-output', 'children'),
     Input('harmonize-button', 'n_clicks'),
     State('selected-points', 'data'),
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def run_harmonization(n_clicks, selected):
+    global pca, df
     if not selected or selected['melody'] is None or selected['guide'] is None:
         return "Please select both a melody and a guide first."
-    guide_f = data_all[selected['guide']]
-    input_f = data_all[selected['melody']]
-    output = generate_files_with_base2(
+    guide_encoded = data_all[selected['melody']]
+    input_encoded = data_all[selected['guide']]
+    harmony_guide = torch.LongTensor(guide_encoded['input_ids']).reshape(1, len(guide_encoded['input_ids']))
+    harmony_real = torch.LongTensor(input_encoded['input_ids']).reshape(1, len(input_encoded['input_ids']))
+    melody_grid = torch.FloatTensor( input_encoded['pianoroll'] ).reshape( 1, input_encoded['pianoroll'].shape[0], input_encoded['pianoroll'].shape[1] )
+    conditioning_vec = torch.FloatTensor( input_encoded['time_signature'] ).reshape( 1, len(input_encoded['time_signature']) )
+    pad_token_id = tokenizer.pad_token_id
+    nc_token_id = tokenizer.nc_token_id
+    use_constraints = False
+    base2_generated_harmony = structured_progressive_generate(
         model=model,
-        tokenizer=tokenizer,
-        input_f=input_f,
-        guide_f=guide_f,
-        mxl_folder=mxl_folder,
-        midi_folder=midi_folder,
-        name_suffix=0
+        melody_grid=melody_grid.to(model.device),
+        conditioning_vec=conditioning_vec.to(model.device),
+        guiding_harmony=harmony_guide.to(model.device),
+        num_stages=10,
+        mask_token_id=tokenizer.mask_token_id,
+        temperature=1.0,
+        strategy='sample',
+        pad_token_id=pad_token_id,      # token ID for <pad>
+        nc_token_id=nc_token_id,       # token ID for <nc>
+        force_fill=True,         # disallow <pad>/<nc> before melody ends
+        chord_constraints = harmony_real.to(model.device) if use_constraints else None
     )
-    return f"Harmonizing melody {selected['melody']} with guide {selected['guide']}: {output}"
+    gen_output_tokens = []
+    for t in base2_generated_harmony[0].tolist():
+        gen_output_tokens.append( tokenizer.ids_to_tokens[t] )
+    # text to present to html
+    gen_output_html = condenced_str_from_token_ids(base2_generated_harmony[0].tolist(), tokenizer).split('\n')
+    txt = html.Div([
+        html.Strong("Harmonized:"),
+        *[html.Div(line) for line in gen_output_html],
+    ])
+    # embedding to apply pca transformation to
+    z = model.get_z_from_harmony(base2_generated_harmony.to(device)).detach().cpu()[0].tolist()
+    print(z)
+    # appy pca
+    z_pca = pca.transform([z])[0]
+    # append new point to df
+    new_point = {
+        'x': z_pca[0],
+        'y': z_pca[1],
+        'class': 2,
+        'token': gen_output_tokens,
+        'hover_text': txt,
+        'class_str': '2'
+    }
+    print(z_pca)
+    df = pd.concat([df, pd.DataFrame([new_point])], ignore_index=True)
+    return make_figure(selected), txt
 
 if __name__ == '__main__':
     print('FUN main')
