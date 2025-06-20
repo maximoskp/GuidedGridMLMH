@@ -14,11 +14,12 @@ import dash
 from dash import dcc, html, Input, Output, State
 from generate_utils import load_model, structured_progressive_generate
 import os
+from triplet_projector_training_CA import TripletProjector
 
 # global
 df = None
 data_all = None
-pca = None
+projector_model = None
 
 device_name = 'cuda:0'
 val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
@@ -120,9 +121,9 @@ def condenced_str_from_token_ids(inp_ids, tokenizer):
     return tmp_str
 # end condenced_str_from_token_ids
 
-def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
-    global pca
-    print('FUN apply_pca')
+def apply_projection(model, tokenizer, val_dataset, jazz_dataset):
+    global projector_model
+    print('FUN apply_projection')
     zs = []
     z_idxs = []
     z_tokens = []
@@ -146,14 +147,19 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
 
     z_np = np.array( zs )
 
-    # pca = PCA(n_components=2)
-    pca = KernelPCA(n_components=2, kernel='cosine')
-    y = pca.fit_transform( z_np )
+    projector_model = TripletProjector(z_np.shape[1])
+
+    checkpoint = torch.load('saved_models/triplet_models/triplet_epoch_CA.pt', map_location=device_name)
+    projector_model.load_state_dict(checkpoint)
+    projector_model.eval()
+    projector_model.to(device)
+
+    projection = projector_model( torch.FloatTensor( z_np ).to(device) ).detach().cpu().numpy()
     
     # Combine into a DataFrame for easy Plotly integration
     df = pd.DataFrame({
-        'x': y[:, 0],
-        'y': y[:, 1],
+        'x': projection[:, 0],
+        'y': projection[:, 1],
         'class': z_idxs,
         'token': z_tokens
     })
@@ -162,7 +168,7 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
     df['class_str'] = df['class'].astype(str)
     df['symbol'] = df['class_str'].map(symbol_map)
     df['size'] = df['class_str'].map(size_map)
-# end apply_pca
+# end apply_projection
 
 def make_figure(selected):
     print('FUN make_figure')
@@ -228,7 +234,7 @@ def make_figure(selected):
 
 tokenizer, val_dataset, jazz_dataset = initialize_data()
 model = initialize_model(tokenizer)
-apply_pca(model, tokenizer, val_dataset, jazz_dataset)
+apply_projection(model, tokenizer, val_dataset, jazz_dataset)
 
 app = dash.Dash(__name__)
 
@@ -303,7 +309,7 @@ def handle_click(clickData, selected):
     prevent_initial_call=True,
 )
 def run_harmonization(n_clicks, selected):
-    global pca, df
+    global df
     if not selected or selected['melody'] is None or selected['guide'] is None:
         return "Please select both a melody and a guide first."
     guide_encoded = data_all[selected['melody']]
@@ -338,16 +344,16 @@ def run_harmonization(n_clicks, selected):
         html.Strong("Harmonized:"),
         *[html.Div(line) for line in gen_output_html],
     ])
-    # embedding to apply pca transformation to
+    # embedding to apply triplet model transformation to
     z = model.get_z_from_harmony(base2_generated_harmony.to(device)).detach().cpu()[0].tolist()
     print('guide-z: ', F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(guide_encoded['z']), dim=-1))
     print('input-z: ', F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(input_encoded['z']), dim=-1))
-    # appy pca
-    z_pca = pca.transform([z])[0]
+    # appy projection
+    z_proj = projector_model(torch.FloatTensor([z]).to(device)).detach().cpu().numpy()[0]
     # append new point to df
     new_point = {
-        'x': z_pca[0],
-        'y': z_pca[1],
+        'x': z_proj[0],
+        'y': z_proj[1],
         'class': 2,
         'token': gen_output_tokens,
         'hover_text': txt,
@@ -355,11 +361,11 @@ def run_harmonization(n_clicks, selected):
         'symbol': symbol_map['2'],
         'size': size_map['2']
     }
-    print(z_pca)
+    print(z_proj)
     guide_z = [ df.iloc[selected['guide']]['x'] , df.iloc[selected['guide']]['y'] ]
     input_z = [ df.iloc[selected['melody']]['x'] , df.iloc[selected['melody']]['y'] ]
-    print('PCA guide-z', F.cosine_similarity(torch.FloatTensor(z_pca), torch.FloatTensor(guide_z), dim=-1))
-    print('PCA input-z', F.cosine_similarity(torch.FloatTensor(z_pca), torch.FloatTensor(input_z), dim=-1))
+    print('proj guide-z', F.cosine_similarity(torch.FloatTensor(z_proj), torch.FloatTensor(guide_z), dim=-1))
+    print('proj input-z', F.cosine_similarity(torch.FloatTensor(z_proj), torch.FloatTensor(input_z), dim=-1))
     df = pd.concat([df, pd.DataFrame([new_point])], ignore_index=True)
     return make_figure(selected), txt
 
