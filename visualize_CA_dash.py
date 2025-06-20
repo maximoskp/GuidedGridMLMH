@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from data_utils import GuidedGridMLMDataset, GuidedGridMLM_collate_fn
 from torch.utils.data import DataLoader
 from GridMLM_tokenizers import GuidedGridMLMTokenizer
@@ -6,7 +7,7 @@ from models import GuidedMLMH
 from tqdm import tqdm
 import numpy as np
 # from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, KernelPCA
 import plotly.express as px
 import pandas as pd
 import dash
@@ -130,21 +131,23 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
     for d in tqdm(val_dataset):
         full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
         z_tokens.append(condenced_str_from_token_ids(d['input_ids'], tokenizer))
-        data_all.append( d )
         z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
+        d['z'] = z
+        data_all.append( d )
         zs.append(z)
         z_idxs.append(0)
-    for d in tqdm(jazz_dataset):
-        full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
-        z_tokens.append(condenced_str_from_token_ids(d['input_ids'], tokenizer))
-        data_all.append( d )
-        z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
-        zs.append(z)
-        z_idxs.append(1)
+    # for d in tqdm(jazz_dataset):
+    #     full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
+    #     z_tokens.append(condenced_str_from_token_ids(d['input_ids'], tokenizer))
+    #     data_all.append( d )
+    #     z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
+    #     zs.append(z)
+    #     z_idxs.append(1)
 
     z_np = np.array( zs )
 
-    pca = PCA(n_components=2)
+    # pca = PCA(n_components=2)
+    pca = KernelPCA(n_components=2, kernel='cosine')
     y = pca.fit_transform( z_np )
     
     # Combine into a DataFrame for easy Plotly integration
@@ -337,7 +340,8 @@ def run_harmonization(n_clicks, selected):
     ])
     # embedding to apply pca transformation to
     z = model.get_z_from_harmony(base2_generated_harmony.to(device)).detach().cpu()[0].tolist()
-    print(z)
+    print('guide-z: ', F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(guide_encoded['z']), dim=-1))
+    print('input-z: ', F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(input_encoded['z']), dim=-1))
     # appy pca
     z_pca = pca.transform([z])[0]
     # append new point to df
@@ -352,6 +356,10 @@ def run_harmonization(n_clicks, selected):
         'size': size_map['2']
     }
     print(z_pca)
+    guide_z = [ df.iloc[selected['guide']]['x'] , df.iloc[selected['guide']]['y'] ]
+    input_z = [ df.iloc[selected['melody']]['x'] , df.iloc[selected['melody']]['y'] ]
+    print('PCA guide-z', F.cosine_similarity(torch.FloatTensor(z_pca), torch.FloatTensor(guide_z), dim=-1))
+    print('PCA input-z', F.cosine_similarity(torch.FloatTensor(z_pca), torch.FloatTensor(input_z), dim=-1))
     df = pd.concat([df, pd.DataFrame([new_point])], ignore_index=True)
     return make_figure(selected), txt
 

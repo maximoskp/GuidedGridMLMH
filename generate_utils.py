@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-from music21 import harmony, stream, metadata, chord, note, key, meter, tempo
+from music21 import harmony, stream, metadata, chord, note, key, meter, tempo, duration
 import mir_eval
 import numpy as np
 from copy import deepcopy
