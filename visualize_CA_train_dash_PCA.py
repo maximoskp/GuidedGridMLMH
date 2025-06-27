@@ -21,6 +21,7 @@ data_all = None
 pca = None
 
 device_name = 'cuda:2'
+train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
 val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 jazz_dir = '/media/maindisk/data/gjt_melodies/gjt_CA'
 subfolder = 'unf_CA'
@@ -57,7 +58,8 @@ else:
 def initialize_data():
     print('FUN initialize_data')
     tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
-    val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
+    val_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
+    # val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
     jazz_dataset = GuidedGridMLMDataset(jazz_dir, tokenizer, 512, frontloading=True)
     return tokenizer, val_dataset, jazz_dataset
 # end initiailze_data
@@ -174,17 +176,17 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
         z_idxs.append(0)
         # feats.append(d['features'])
         feats.append(tmp_feats)
-    for d in tqdm(jazz_dataset):
-        full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
-        tmp_str, tmp_feats = condenced_str_from_token_ids(d['input_ids'], tokenizer)
-        z_tokens.append(tmp_str)
-        data_all.append( d )
-        z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
-        d['z'] = z
-        zs.append(z)
-        z_idxs.append(1)
-        # feats.append(d['features'])
-        feats.append(tmp_feats)
+    # for d in tqdm(jazz_dataset):
+    #     full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
+    #     tmp_str, tmp_feats = condenced_str_from_token_ids(d['input_ids'], tokenizer)
+    #     z_tokens.append(tmp_str)
+    #     data_all.append( d )
+    #     z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
+    #     d['z'] = z
+    #     zs.append(z)
+    #     z_idxs.append(1)
+    #     # feats.append(d['features'])
+    #     feats.append(tmp_feats)
 
     # z_np = np.array( zs )
     feats_np = np.array(feats)
