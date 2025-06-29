@@ -372,7 +372,6 @@ def train_with_curriculum(
                     total_stages=10,
                     curriculum_type=curriculum_type
                 )
-
                 logits, losses = model(
                     conditioning_vec,
                     melody_grid,

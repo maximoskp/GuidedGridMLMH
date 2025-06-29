@@ -80,6 +80,8 @@ def generate_disentanglement_data(
                 chord_constraints = None
             )
             new_attention = torch.logical_not( generated_harmony[0] == tokenizer.pad_token_id ).long().tolist()
+            # we don't need to put -100 to pad, we need to learn it...
+            # generated_harmony[ generated_harmony == tokenizer.pad_token_id ] = -100
             new_input_ids = generated_harmony[0].tolist()
             new_d = deepcopy( input_encoded )
             new_d['input_ids'] = new_input_ids
@@ -101,7 +103,7 @@ def train_wrapper(kwargs):
 # end train_wrapper
 
 if __name__ == "__main__":
-    # Load your heavy objects ONCE
+    # Load heavy objects ONCE
     tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
 
     train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)

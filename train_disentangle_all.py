@@ -1,4 +1,4 @@
-from train_gmlmh_fn import train_gmlmh
+from train_gmlmh_fn import train_disentangle_gmlmh
 from data_utils import GuidedGridMLMDataset, GuidedGridMLM_collate_fn
 from torch.utils.data import DataLoader
 from GridMLM_tokenizers import GuidedGridMLMTokenizer
@@ -11,10 +11,10 @@ import multiprocessing
 
 # TODO: implement argument forwarding of unfold=True/False in models.py
 subfolder = 'unf_CA'
-epochs = 50
+epochs = 10
 validations_per_epoch = 1
-train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
-val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
+# train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
+# val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 
 # subfolder = 'unf_all12'
 # epochs = 5
@@ -26,23 +26,28 @@ batchsize = 8
 
 tokenizer = None
 
-train_dataset = None
-val_dataset = None
+# train_dataset = None
+# val_dataset = None
 
-trainloader = None
-valloader = None
+# trainloader = None
+# valloader = None
 
-def init_worker(td, vd, tl, vl, tok):
-    global train_dataset, val_dataset, trainloader, valloader, tokenizer
-    train_dataset = td
-    val_dataset = vd
-    trainloader = tl
-    valloader = vl
+def init_worker(x, tok):
+    global tokenizer
+    x = 1
     tokenizer = tok
 # end init_worker
 
 def train_wrapper(kwargs):
-    return train_gmlmh(
+    train_dir = '/media/maindisk/data/hooktheory_hr/guidance_disentanglement_data/' + \
+        kwargs['subfolder'] + '_' + kwargs['curriculum_type'] + '_' + kwargs['loss_scheme']
+    val_dir = train_dir
+
+    train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
+    val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
+    trainloader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True, collate_fn=GuidedGridMLM_collate_fn)
+    valloader = DataLoader(val_dataset, batch_size=batchsize, shuffle=False, collate_fn=GuidedGridMLM_collate_fn)
+    return train_disentangle_gmlmh(
         trainloader=trainloader,
         valloader=valloader,
         tokenizer=tokenizer,
@@ -54,11 +59,11 @@ if __name__ == "__main__":
     # Load your heavy objects ONCE
     tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
 
-    train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
-    val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
+    # train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
+    # val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
 
-    trainloader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True, collate_fn=GuidedGridMLM_collate_fn)
-    valloader = DataLoader(val_dataset, batch_size=batchsize, shuffle=False, collate_fn=GuidedGridMLM_collate_fn)
+    # trainloader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True, collate_fn=GuidedGridMLM_collate_fn)
+    # valloader = DataLoader(val_dataset, batch_size=batchsize, shuffle=False, collate_fn=GuidedGridMLM_collate_fn)
 
     task_args = [
         {
@@ -147,7 +152,7 @@ if __name__ == "__main__":
     with multiprocessing.get_context("fork").Pool(
         processes=len(task_args),
         initializer=init_worker,
-        initargs=(train_dataset, val_dataset, trainloader, valloader, tokenizer)
+        initargs=(0, tokenizer)
     ) as pool:
         results = pool.map(train_wrapper, task_args)
 

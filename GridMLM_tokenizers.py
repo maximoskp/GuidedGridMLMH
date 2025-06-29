@@ -63,16 +63,17 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
             chromatic_roots.append(pitch_obj.name)  # Use sharp representation
 
         self.qualities = list(EXT_MIR_QUALITIES.keys())
+        self.chord_tokens = []
+        self.chord_token_ids = []
 
         for root in chromatic_roots:
             for quality in self.qualities:
                     chord_token = root + (len(quality) > 0)*':' + quality
                     self.vocab[chord_token] = len(self.vocab)
+                    self.chord_tokens.append( root + (len(quality) > 0)*':' + quality )
+                    self.chord_token_ids.append( self.vocab[chord_token] )
         self.update_ids_to_tokens()
         self.total_vocab_size = len(self.vocab)
-        # features
-        self.chord_type_distribution = [0]*len(self.qualities)
-        self.chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
     # end init
 
     def construct_basic_vocab(self):
@@ -236,7 +237,6 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
         # update chord type distribution feature
         try:
             type_idx = self.qualities.index(type_token)
-            self.chord_type_distribution[ type_idx ] += 1
         except:
             print("type not found: ", type_token)
         chord_token = root_token + (len(type_token) > 0)*':' + type_token
@@ -317,6 +317,87 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
         
         return score
     # end randomize_score
+
+    def features_from_token_ids(self, inp_ids):
+        # for computing features
+        chord_distribution = [0]*len(self.chord_token_ids)
+        chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
+        tmp_count = 0
+        prev_id = -1
+        for t in inp_ids:
+            if prev_id == t:
+                tmp_count += 1
+            else:
+                if prev_id != -1:
+                    chord_token = self.ids_to_tokens[prev_id]
+                    if chord_token != '<nc>' and chord_token != '<pad>':
+                        if t in self.chord_token_ids:
+                            # update chord type distribution
+                            chord_idx = self.chord_token_ids.index(t)
+                            chord_distribution[ chord_idx ] += 1
+                            # update chord duration distribution
+                            chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+                tmp_count = 1
+                prev_id = t
+        chord_token = self.ids_to_tokens[prev_id]
+        if chord_token != '<nc>' and chord_token != '<pad>':
+            if t in self.chord_token_ids:
+                # update chord type distribution
+                chord_idx = self.chord_token_ids.index(t)
+                chord_distribution[ chord_idx ] += 1
+                # update chord duration distribution
+                chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+        # normalize features
+        s_tmp = sum(chord_distribution)
+        if s_tmp > 0:
+            for i in range(len(chord_distribution)):
+                chord_distribution[i] /= s_tmp
+        s_tmp = sum(chord_duration_distribution)
+        if s_tmp > 0:
+            for i in range(len(chord_duration_distribution)):
+                chord_duration_distribution[i] /= s_tmp
+        return chord_distribution + chord_duration_distribution
+    # end features_from_token_ids
+
+    def features_from_tokens(self, inp_toks):
+        # for computing features
+        chord_distribution = [0]*len(self.chord_tokens)
+        chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
+        tmp_count = 0
+        prev_tok = '-1'
+        for chord_token in inp_toks:
+            if prev_tok == chord_token:
+                tmp_count += 1
+            else:
+                if prev_tok != -1:
+                    if chord_token != '<nc>' and chord_token != '<pad>':
+                        if chord_token in self.chord_tokens:
+                            # update chord type distribution
+                            chord_idx = self.chord_tokens.index(chord_token)
+                            chord_distribution[ chord_idx ] += 1
+                            # update chord duration distribution
+                            chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+                tmp_count = 1
+                prev_tok = chord_token
+        chord_token = prev_tok
+        if chord_token != '<nc>' and chord_token != '<pad>':
+            if chord_token in self.chord_tokens:
+                # update chord type distribution
+                chord_idx = self.chord_token_ids.index(chord_token)
+                chord_distribution[ chord_idx ] += 1
+                # update chord duration distribution
+                chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+        # normalize features
+        s_tmp = sum(chord_distribution)
+        if s_tmp > 0:
+            for i in range(len(chord_distribution)):
+                chord_distribution[i] /= s_tmp
+        s_tmp = sum(chord_duration_distribution)
+        if s_tmp > 0:
+            for i in range(len(chord_duration_distribution)):
+                chord_duration_distribution[i] /= s_tmp
+        return chord_distribution + chord_duration_distribution
+    # end features_from_tokens
 
     def encode(
             self,
@@ -439,19 +520,11 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                 if end < len(chord_tokens):
                     chord_tokens[end] = '<nc>'
                     chord_token_ids[end] = self.vocab['<nc>']
-        # toward updating chord duration distribution
-        tmp_counter = 1
         # Propagate chord forward
         for i in range(1, len(chord_tokens)):
             if chord_tokens[i] is None:
                 chord_tokens[i] = chord_tokens[i-1]
                 chord_token_ids[i] = chord_token_ids[i-1]
-                tmp_counter += 1
-            else:
-                self.chord_duration_distribution[ min( int(np.log2(tmp_counter)), 7 ) ] += 1
-                tmp_counter = 1
-        if tmp_counter > 0:
-            self.chord_duration_distribution[ min( int(np.log2(tmp_counter)), 7 ) ] += 1
 
         # Fill missing with <pad> or <nc>
         for i in range(len(chord_tokens)):
@@ -496,15 +569,6 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                 attention_mask = [1]*n_steps + [0]*pad_len
         else:
             attention_mask = [1]*n_steps
-        # normalize features
-        s_tmp = sum(self.chord_type_distribution)
-        if s_tmp > 0:
-            for i in range(len(self.chord_type_distribution)):
-                self.chord_type_distribution[i] /= s_tmp
-        s_tmp = sum(self.chord_duration_distribution)
-        if s_tmp > 0:
-            for i in range(len(self.chord_duration_distribution)):
-                self.chord_duration_distribution[i] /= s_tmp
         return {
             'input_tokens': chord_tokens,
             'input_ids': chord_token_ids,
@@ -514,7 +578,7 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
             'skip_steps': skip_steps,
             'melody_part':melody_part,
             'ql_per_quantum': ql_per_quantum,
-            'features': self.chord_type_distribution + self.chord_duration_distribution,
+            'features': self.features_from_token_ids(chord_token_ids),
             'back_interval': back_interval if normalize_tonality else None,
             'file_path': file_path
         }
@@ -616,19 +680,11 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                     if end < len(chord_tokens):
                         chord_tokens[end] = '<nc>'
                         chord_token_ids[end] = self.vocab['<nc>']
-            # toward updating chord duration distribution
-            tmp_counter = 1
             # Propagate chord forward
             for i in range(1, len(chord_tokens)):
                 if chord_tokens[i] is None:
                     chord_tokens[i] = chord_tokens[i-1]
                     chord_token_ids[i] = chord_token_ids[i-1]
-                    tmp_counter += 1
-                else:
-                    self.chord_duration_distribution[ min( int(np.log2(tmp_counter)), 7 ) ] += 1
-                    tmp_counter = 1
-            if tmp_counter > 0:
-                self.chord_duration_distribution[ min( int(np.log2(tmp_counter)), 7 ) ] += 1
 
         # Fill missing with <pad> or <nc>
         for i in range(len(chord_tokens)):
@@ -673,15 +729,6 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                 attention_mask = [1]*n_steps + [0]*pad_len
         else:
             attention_mask = [1]*n_steps
-        # normalize features
-        s_tmp = sum(self.chord_type_distribution)
-        if s_tmp > 0:
-            for i in range(len(self.chord_type_distribution)):
-                self.chord_type_distribution[i] /= s_tmp
-        s_tmp = sum(self.chord_duration_distribution)
-        if s_tmp > 0:
-            for i in range(len(self.chord_duration_distribution)):
-                self.chord_duration_distribution[i] /= s_tmp
         return {
             'input_tokens': chord_tokens,
             'input_ids': chord_token_ids,
@@ -691,7 +738,7 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
             'skip_steps': skip_steps,
             'melody_part':melody_part,
             'ql_per_quantum': ql_per_quantum,
-            'features': self.chord_type_distribution + self.chord_duration_distribution,
+            'features': self.features_from_token_ids(chord_token_ids),
             'back_interval': back_interval if normalize_tonality else None,
             'file_path': file_path
         }
