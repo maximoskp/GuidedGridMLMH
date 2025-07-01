@@ -66,37 +66,43 @@ def initialize_data():
 
 def initialize_model(tokenizer):
     print('FUN initialize_model')
-    vae_cfg = {
-        'input_dim': 512,
-        'hidden_dim': 256,
-        'latent_dim': 128,
-        'embedding_dim': 64,
-        'seq_len': 256,
-        'feature_dim': 37,
-    }
-    encoder_cfg = {
-        'nhead': 8,
-        'num_layers': 8,
-        'stage_embedding_dim': 64,
-        'max_stages': 10
-    }
-    model = GuidedMLMH(
-        vae_cfg=vae_cfg,
-        encoder_cfg=encoder_cfg,
-        chord_vocab_size=len(tokenizer.vocab),
-        d_model=512,
-        conditioning_dim=16,
-        pianoroll_dim=100,
-        grid_length=256,
-        guidance_dim=128,
-        unfold_latent=True,
-        device=device,
+    # vae_cfg = {
+    #     'input_dim': 512,
+    #     'hidden_dim': 256,
+    #     'latent_dim': 128,
+    #     'embedding_dim': 64,
+    #     'seq_len': 256,
+    #     'feature_dim': 356,
+    # }
+    # encoder_cfg = {
+    #     'nhead': 8,
+    #     'num_layers': 8,
+    #     'stage_embedding_dim': 64,
+    #     'max_stages': 10
+    # }
+    # model = GuidedMLMH(
+    #     vae_cfg=vae_cfg,
+    #     encoder_cfg=encoder_cfg,
+    #     chord_vocab_size=len(tokenizer.vocab),
+    #     d_model=512,
+    #     conditioning_dim=16,
+    #     pianoroll_dim=100,
+    #     grid_length=256,
+    #     guidance_dim=128,
+    #     unfold_latent=True,
+    #     device=device,
+    # )
+    # checkpoint = torch.load(model_path, map_location=device_name)
+    # model.load_state_dict(checkpoint)
+    # model.eval()
+    # model.to(device)
+    return load_model(
+        curriculum_type=curriculum_type,
+        subfolder=subfolder,
+        ablation=ablation,
+        device_name=device_name,
+        tokenizer=tokenizer
     )
-    checkpoint = torch.load(model_path, map_location=device_name)
-    model.load_state_dict(checkpoint)
-    model.eval()
-    model.to(device)
-    return model
 # end initialize_model
 
 def condenced_str_from_token_ids(inp_ids, tokenizer):

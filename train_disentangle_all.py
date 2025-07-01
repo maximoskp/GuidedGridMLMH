@@ -11,7 +11,7 @@ import multiprocessing
 
 # TODO: implement argument forwarding of unfold=True/False in models.py
 subfolder = 'unf_CA'
-epochs = 10
+epochs = 20
 validations_per_epoch = 1
 # train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
 # val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
