@@ -24,9 +24,9 @@ device_name = 'cuda:2'
 train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
 val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 jazz_dir = '/media/maindisk/data/gjt_melodies/gjt_CA'
-subfolder = 'unf_CA'
+subfolder = 'disentangle/unf_CA'
 curriculum_type='random'
-ablation = 'all'
+ablation = 'rec'
 
 mxl_folder = 'examples_musicXML/' + subfolder + '/' + curriculum_type + '/' + ablation + '/'
 midi_folder = 'examples_MIDI/' + subfolder + '/' + curriculum_type + '/' + ablation + '/'
@@ -107,8 +107,6 @@ def initialize_model(tokenizer):
 
 def condenced_str_from_token_ids(inp_ids, tokenizer):
     # for computing features
-    chord_type_distribution = [0]*len(tokenizer.qualities)
-    chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
     tmp_str = ''
     tmp_count = 0
     prev_id = -1
@@ -125,11 +123,6 @@ def condenced_str_from_token_ids(inp_ids, tokenizer):
                         type_token = chord_token.split(':')[1]
                     else:
                         type_token = ''
-                    # update chord type distribution
-                    type_idx = tokenizer.qualities.index(type_token)
-                    chord_type_distribution[ type_idx ] += 1
-                    # update chord duration distribution
-                    chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
                 num_chords += 1
                 if num_chords == 4:
                     tmp_str += '\n'
@@ -145,21 +138,7 @@ def condenced_str_from_token_ids(inp_ids, tokenizer):
             type_token = chord_token.split(':')[1]
         else:
             type_token = ''
-        # update chord type distribution
-        type_idx = tokenizer.qualities.index(type_token)
-        chord_type_distribution[ type_idx ] += 1
-        # update chord duration distribution
-        chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
-    # normalize features
-    s_tmp = sum(chord_type_distribution)
-    if s_tmp > 0:
-        for i in range(len(chord_type_distribution)):
-            chord_type_distribution[i] /= s_tmp
-    s_tmp = sum(chord_duration_distribution)
-    if s_tmp > 0:
-        for i in range(len(chord_duration_distribution)):
-            chord_duration_distribution[i] /= s_tmp
-    return tmp_str, chord_type_distribution + chord_duration_distribution
+    return tmp_str
 # end condenced_str_from_token_ids
 
 def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
@@ -173,7 +152,7 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
     data_all = []
     for d in tqdm(val_dataset):
         full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
-        tmp_str, tmp_feats = condenced_str_from_token_ids(d['input_ids'], tokenizer)
+        tmp_str = condenced_str_from_token_ids(d['input_ids'], tokenizer)
         z_tokens.append(tmp_str)
         z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
         d['z'] = z
@@ -181,26 +160,24 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
         zs.append(z)
         z_idxs.append(0)
         # feats.append(d['features'])
-        feats.append(tmp_feats)
+        feats.append(tokenizer.features_from_token_ids(d['input_ids']))
     # for d in tqdm(jazz_dataset):
     #     full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
-    #     tmp_str, tmp_feats = condenced_str_from_token_ids(d['input_ids'], tokenizer)
+    #     tmp_str = condenced_str_from_token_ids(d['input_ids'], tokenizer)
     #     z_tokens.append(tmp_str)
     #     data_all.append( d )
     #     z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
     #     d['z'] = z
     #     zs.append(z)
     #     z_idxs.append(1)
-    #     # feats.append(d['features'])
-    #     feats.append(tmp_feats)
+    #     feats.append(d['features'])
 
-    # z_np = np.array( zs )
-    feats_np = np.array(feats)
+    # x_np = np.array( zs )
+    x_np = np.array(feats)
 
     # pca = PCA(n_components=2)
     pca = KernelPCA(n_components=2, kernel='cosine')
-    # y = pca.fit_transform( z_np )
-    y = pca.fit_transform( feats_np )
+    y = pca.fit_transform( x_np )
     
     # Combine into a DataFrame for easy Plotly integration
     df = pd.DataFrame({
@@ -385,7 +362,8 @@ def run_harmonization(n_clicks, selected):
     for t in base2_generated_harmony[0].tolist():
         gen_output_tokens.append( tokenizer.ids_to_tokens[t] )
     # text to present to html
-    gen_output_html, tmp_feats = condenced_str_from_token_ids(base2_generated_harmony[0].tolist(), tokenizer)
+    gen_output_html = condenced_str_from_token_ids(base2_generated_harmony[0].tolist(), tokenizer)
+    tmp_feats = tokenizer.features_from_token_ids( base2_generated_harmony[0].tolist() )
     gen_output_html = gen_output_html.split('\n')
     txt = html.Div([
         html.Strong("Harmonized:"),

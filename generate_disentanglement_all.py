@@ -56,13 +56,13 @@ def generate_disentanglement_data(
     # initialize new dataset
     new_dataset = []
     for i_input in tqdm(input_idxs[:num_melodies]):
+        input_encoded = train_dataset[i_input]
         # permutation of guide indices
         # exclude the input idx
         all_indexes = np.delete(np.arange(len(train_dataset)), i_input)
         # permutation of the remaining indices
         guide_idxs = np.random.permutation( all_indexes )
         for i_guide in guide_idxs[:num_guides]:
-            input_encoded = train_dataset[i_input]
             guide_encoded = train_dataset[i_guide]
             harmony_guide = torch.LongTensor(guide_encoded['input_ids']).reshape(1, len(guide_encoded['input_ids']))
             # harmony_real = torch.LongTensor(input_encoded['input_ids']).reshape(1, len(input_encoded['input_ids']))

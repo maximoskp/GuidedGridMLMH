@@ -321,7 +321,7 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
     def features_from_token_ids(self, inp_ids):
         # for computing features
         chord_distribution = [0]*len(self.chord_token_ids)
-        chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
+        # chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
         tmp_count = 0
         prev_id = -1
         for t in inp_ids:
@@ -336,7 +336,7 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                             chord_idx = self.chord_token_ids.index(t)
                             chord_distribution[ chord_idx ] += 1
                             # update chord duration distribution
-                            chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+                            # chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
                 tmp_count = 1
                 prev_id = t
         chord_token = self.ids_to_tokens[prev_id]
@@ -346,23 +346,24 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                 chord_idx = self.chord_token_ids.index(t)
                 chord_distribution[ chord_idx ] += 1
                 # update chord duration distribution
-                chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+                # chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
         # normalize features
         s_tmp = sum(chord_distribution)
         if s_tmp > 0:
             for i in range(len(chord_distribution)):
                 chord_distribution[i] /= s_tmp
-        s_tmp = sum(chord_duration_distribution)
-        if s_tmp > 0:
-            for i in range(len(chord_duration_distribution)):
-                chord_duration_distribution[i] /= s_tmp
-        return chord_distribution + chord_duration_distribution
+        return chord_distribution
+        # s_tmp = sum(chord_duration_distribution)
+        # if s_tmp > 0:
+        #     for i in range(len(chord_duration_distribution)):
+        #         chord_duration_distribution[i] /= s_tmp
+        # return chord_distribution + chord_duration_distribution
     # end features_from_token_ids
 
     def features_from_tokens(self, inp_toks):
         # for computing features
         chord_distribution = [0]*len(self.chord_tokens)
-        chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
+        # chord_duration_distribution = [0]*8 # for 1, 2, 4, 8, 16, ... 128 consecutive occurances
         tmp_count = 0
         prev_tok = '-1'
         for chord_token in inp_toks:
@@ -376,7 +377,7 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                             chord_idx = self.chord_tokens.index(chord_token)
                             chord_distribution[ chord_idx ] += 1
                             # update chord duration distribution
-                            chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+                            # chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
                 tmp_count = 1
                 prev_tok = chord_token
         chord_token = prev_tok
@@ -386,17 +387,18 @@ class GuidedGridMLMTokenizer(PreTrainedTokenizer):
                 chord_idx = self.chord_token_ids.index(chord_token)
                 chord_distribution[ chord_idx ] += 1
                 # update chord duration distribution
-                chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
+                # chord_duration_distribution[ min( int(np.log2(tmp_count)), 7 ) ] += 1
         # normalize features
         s_tmp = sum(chord_distribution)
         if s_tmp > 0:
             for i in range(len(chord_distribution)):
                 chord_distribution[i] /= s_tmp
-        s_tmp = sum(chord_duration_distribution)
-        if s_tmp > 0:
-            for i in range(len(chord_duration_distribution)):
-                chord_duration_distribution[i] /= s_tmp
-        return chord_distribution + chord_duration_distribution
+        return chord_distribution
+        # s_tmp = sum(chord_duration_distribution)
+        # if s_tmp > 0:
+        #     for i in range(len(chord_duration_distribution)):
+        #         chord_duration_distribution[i] /= s_tmp
+        # return chord_distribution + chord_duration_distribution
     # end features_from_tokens
 
     def encode(
