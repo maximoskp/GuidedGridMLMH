@@ -386,3 +386,151 @@ class GuidedMLMH(nn.Module):
 
 
 '''
+
+'''
+CrossFiLM approach
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class GuidanceVAE(nn.Module):
+    def __init__(
+            self,
+            input_dim,
+            hidden_dim,
+            latent_dim,
+            embedding_dim,
+            seq_len,
+            feature_dim,
+            chord_vocab_size,
+            device='cpu'
+        ):
+        super().__init__()
+        self.device = device
+        self.seq_len = seq_len
+        self.latent_dim = latent_dim
+        self.input_dim = input_dim
+
+        self.embedding = nn.Embedding(chord_vocab_size, embedding_dim, device=device)
+        self.encoder_rnn = nn.LSTM(embedding_dim, hidden_dim, batch_first=True)
+        self.mu_proj = nn.Linear(hidden_dim, latent_dim)
+        self.logvar_proj = nn.Linear(hidden_dim, latent_dim)
+
+        self.decoder_rnn = nn.LSTM(latent_dim, hidden_dim, batch_first=True)
+        self.recon_proj = nn.Linear(hidden_dim, chord_vocab_size)
+
+        self.feature_proj = nn.Linear(latent_dim, feature_dim)
+    # end init
+
+    def encode(self, harmony_tokens):
+        emb = self.embedding(harmony_tokens)  # (B, L, E)
+        _, (h_n, _) = self.encoder_rnn(emb)
+        h = h_n.squeeze(0)
+        mu = self.mu_proj(h)
+        logvar = self.logvar_proj(h)
+        return mu, logvar
+    # end encode
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+    # end parametrize
+
+    def decode(self, z):
+        z_seq = z.unsqueeze(1).repeat(1, self.seq_len, 1)
+        output, _ = self.decoder_rnn(z_seq)
+        return self.recon_proj(output)
+    # end decode
+
+    def forward(self, harmony_tokens):
+        mu, logvar = self.encode(harmony_tokens)
+        z = self.reparameterize(mu, logvar)
+        recon_x = self.decode(z)
+        z_proj = self.feature_proj(z)
+        return z, mu, logvar, recon_x, z_proj
+    # end forward
+# end class GuidanceVAE
+
+class CrossFiLMTransformerEncoderLayer(nn.Module):
+    def __init__(self, d_model, nhead, guidance_dim, dim_feedforward=2048, dropout=0.1):
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+        self.cross_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.norm3 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
+
+        self.activation = nn.GELU()
+
+        self.film_gamma = nn.Linear(guidance_dim, d_model)
+        self.film_beta = nn.Linear(guidance_dim, d_model)
+
+    def forward(self, src, z, guidance_seq):
+        gamma = self.film_gamma(z).unsqueeze(1)
+        beta = self.film_beta(z).unsqueeze(1)
+
+        src2 = self.self_attn(src, src, src)[0]
+        src = src + self.dropout1(src2)
+        src = self.norm1(src)
+
+        src2 = self.cross_attn(src, guidance_seq, guidance_seq)[0]
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src2 = gamma * src2 + beta
+        src = src + self.dropout3(src2)
+        src = self.norm3(src)
+        return src
+
+class GridMLMMelHarmEncoder(nn.Module):
+    def __init__(self, chord_vocab_size, d_model, nhead, num_layers,
+                 stage_embedding_dim, max_stages, use_crossfilm=True, guidance_dim=None, device='cpu'):
+        super().__init__()
+        self.device = device
+        self.use_crossfilm = use_crossfilm
+
+        self.stage_embedding = nn.Embedding(max_stages, stage_embedding_dim, device=device)
+        self.stage_proj = nn.Linear(d_model + stage_embedding_dim, d_model, device=device)
+
+        if use_crossfilm:
+            self.layers = nn.ModuleList([
+                CrossFiLMTransformerEncoderLayer(d_model, nhead, guidance_dim, dim_feedforward=4*d_model, dropout=0.1)
+                for _ in range(num_layers)
+            ])
+        else:
+            self.layers = nn.ModuleList([
+                FiLMTransformerEncoderLayer(d_model, nhead, dim_feedforward=4*d_model, dropout=0.1)
+                for _ in range(num_layers)
+            ])
+
+        self.input_norm = nn.LayerNorm(d_model)
+        self.output_norm = nn.LayerNorm(d_model)
+        self.output_head = nn.Linear(d_model, chord_vocab_size, device=device)
+
+    def forward(self, full_seq, stage_indices, z, guidance_seq=None):
+        if stage_indices is not None:
+            stage_emb = self.stage_embedding(stage_indices).unsqueeze(1).repeat(1, full_seq.size(1), 1)
+            full_seq = torch.cat([full_seq, stage_emb], dim=-1)
+            full_seq = self.stage_proj(full_seq)
+
+        full_seq = self.input_norm(full_seq)
+        for layer in self.layers:
+            if self.use_crossfilm:
+                full_seq = layer(full_seq, z, guidance_seq)
+            else:
+                full_seq = layer(full_seq, z)
+        full_seq = self.output_norm(full_seq)
+        return self.output_head(full_seq[:, -256:, :])
+
+'''
