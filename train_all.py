@@ -22,7 +22,7 @@ val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 # train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_train'
 # val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_all12_test'
 
-batchsize = 8
+batchsize = 4
 
 tokenizer = None
 

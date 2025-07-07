@@ -60,6 +60,43 @@ class GuidanceVAE(nn.Module):
     # end forward
 # end class GuidanceVAE
 
+class FiLMTransformerEncoderLayer(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1):
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = nn.GELU()
+
+        self.film_gamma = nn.Linear(d_model, d_model)
+        self.film_beta = nn.Linear(d_model, d_model)
+    # end init
+
+    def forward(self, src, z):
+        # FiLM modulation
+        gamma = self.film_gamma(z).unsqueeze(1)  # (B, 1, D)
+        beta = self.film_beta(z).unsqueeze(1)    # (B, 1, D)
+
+        # Self-attention
+        src2 = self.self_attn(src, src, src)[0]
+        src = src + self.dropout1(src2)
+        src = self.norm1(src)
+
+        # Feed-forward
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src2 = gamma * src2 + beta
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+        return src
+    # end forward
+# end FiLMTransformerEncoderLayer
+
 class GridMLMMelHarmEncoder(nn.Module):
     def __init__(self, chord_vocab_size, d_model, nhead, num_layers,
                  stage_embedding_dim, max_stages, device='cpu'):
@@ -69,26 +106,35 @@ class GridMLMMelHarmEncoder(nn.Module):
         self.stage_embedding = nn.Embedding(max_stages, stage_embedding_dim, device=device)
         self.stage_proj = nn.Linear(d_model + stage_embedding_dim, d_model, device=device)
 
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead,
-                                                   dim_feedforward=4*d_model, dropout=0.1,
-                                                   activation='gelu', batch_first=True)
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        # encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead,
+        #                                            dim_feedforward=4*d_model, dropout=0.1,
+        #                                            activation='gelu', batch_first=True)
+        # self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.layers = nn.ModuleList([
+            FiLMTransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=4*d_model, dropout=0.1)
+            for _ in range(num_layers)
+        ])
 
         self.input_norm = nn.LayerNorm(d_model)
         self.output_norm = nn.LayerNorm(d_model)
         self.output_head = nn.Linear(d_model, chord_vocab_size, device=device)
     # end init
 
-    def forward(self, full_seq, stage_indices):
+    def forward(self, full_seq, stage_indices, z):
         if stage_indices is not None:
             stage_emb = self.stage_embedding(stage_indices).unsqueeze(1).repeat(1, full_seq.size(1), 1)
             full_seq = torch.cat([full_seq, stage_emb], dim=-1)
             full_seq = self.stage_proj(full_seq)
 
         full_seq = self.input_norm(full_seq)
-        encoded = self.encoder(full_seq)
-        encoded = self.output_norm(encoded)
-        return self.output_head(encoded[:, -256:, :])
+        # encoded = self.encoder(full_seq)
+        # encoded = self.output_norm(encoded)
+        # return self.output_head(encoded[:, -256:, :])
+        for layer in self.layers:
+            full_seq = layer(full_seq, z)
+        full_seq = self.output_norm(full_seq)
+        return self.output_head(full_seq[:, -256:, :])
     # end forward
 # end class GridMLMMelHarmEncoder
 
@@ -149,18 +195,20 @@ class GuidedMLMH(nn.Module):
         input_seq += self.pos_embedding[:, :input_seq.size(1), :]
 
         z, mu, logvar, recon_seq, z_proj = self.vae(guiding_harmony) # TODO: do we need to detach?
+        z_dmodel = self.guidance_to_dmodel(z)
 
-        z_dmodel = self.guidance_to_dmodel(z).unsqueeze(1)  # (B, 1, D)
-        if self.unfold_latent:
-            z_seq = z_dmodel.repeat(1, self.seq_len, 1)
-        else:
-            z_seq = torch.zeros_like(input_seq)
-            z_seq[:, 0:1, :] = z_dmodel
+        # z_dmodel = self.guidance_to_dmodel(z).unsqueeze(1)  # (B, 1, D)
+        # if self.unfold_latent:
+        #     z_seq = z_dmodel.repeat(1, self.seq_len, 1)
+        # else:
+        #     z_seq = torch.zeros_like(input_seq)
+        #     z_seq[:, 0:1, :] = z_dmodel
 
 
-        guided_seq = input_seq + z_seq
+        # guided_seq = input_seq + z_seq
 
-        harmony_output = self.encoder(guided_seq, stage_indices)
+        # harmony_output = self.encoder(guided_seq, stage_indices)
+        harmony_output = self.encoder(input_seq, stage_indices, z_dmodel)
         if handcrafted_features is not None:
             recon_loss, kl_loss, contrastive_loss = self.compute_losses(
                 harmony_tokens, recon_seq, mu, logvar, z_proj, handcrafted_features)
@@ -532,5 +580,48 @@ class GridMLMMelHarmEncoder(nn.Module):
                 full_seq = layer(full_seq, z)
         full_seq = self.output_norm(full_seq)
         return self.output_head(full_seq[:, -256:, :])
+
+'''
+
+'''
+# Cross attention approach
+
+class HarmonizationEncoderLayer(nn.Module):
+    def __init__(self, d_model, nhead, dim_ff, use_cross_attention=False):
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, batch_first=True)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.ff = nn.Sequential(
+            nn.Linear(d_model, dim_ff),
+            nn.ReLU(),
+            nn.Linear(dim_ff, d_model)
+        )
+        self.norm2 = nn.LayerNorm(d_model)
+        
+        # Optional cross-attention components
+        self.use_cross_attention = use_cross_attention
+        if self.use_cross_attention:
+            self.cross_attn = nn.MultiheadAttention(d_model, nhead, batch_first=True)
+            self.norm_cross = nn.LayerNorm(d_model)
+
+    def forward(self, x, guide=None, guide_mask=None):
+        # Self-attention
+        sa_out, _ = self.self_attn(x, x, x)
+        x = self.norm1(x + sa_out)
+
+        # Optional cross-attention
+        if self.use_cross_attention and guide is not None:
+            ca_out, _ = self.cross_attn(x, guide, guide, key_padding_mask=guide_mask)
+            x = self.norm_cross(x + ca_out)
+
+        # Feed-forward
+        ff_out = self.ff(x)
+        x = self.norm2(x + ff_out)
+
+        return x
+
+# to load the dictionary of the model saved with use_cross_attention=False to the 
+# version of the model that now has use_cross_attention=True, use the following:
+version_b.load_state_dict(version_a.state_dict(), strict=False)
 
 '''
