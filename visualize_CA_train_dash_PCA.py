@@ -24,9 +24,9 @@ device_name = 'cuda:2'
 train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
 val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 jazz_dir = '/media/maindisk/data/gjt_melodies/gjt_CA'
-subfolder = 'disentangle/unf_CA'
+subfolder = 'unf_CA'
 curriculum_type='random'
-ablation = 'rec'
+ablation = 'all'
 
 mxl_folder = 'examples_musicXML/' + subfolder + '/' + curriculum_type + '/' + ablation + '/'
 midi_folder = 'examples_MIDI/' + subfolder + '/' + curriculum_type + '/' + ablation + '/'
@@ -58,44 +58,14 @@ else:
 def initialize_data():
     print('FUN initialize_data')
     tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
-    val_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
-    # val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
+    # val_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
+    val_dataset = GuidedGridMLMDataset(val_dir, tokenizer, 512, frontloading=True)
     jazz_dataset = GuidedGridMLMDataset(jazz_dir, tokenizer, 512, frontloading=True)
     return tokenizer, val_dataset, jazz_dataset
 # end initiailze_data
 
 def initialize_model(tokenizer):
     print('FUN initialize_model')
-    # vae_cfg = {
-    #     'input_dim': 512,
-    #     'hidden_dim': 256,
-    #     'latent_dim': 128,
-    #     'embedding_dim': 64,
-    #     'seq_len': 256,
-    #     'feature_dim': 356,
-    # }
-    # encoder_cfg = {
-    #     'nhead': 8,
-    #     'num_layers': 8,
-    #     'stage_embedding_dim': 64,
-    #     'max_stages': 10
-    # }
-    # model = GuidedMLMH(
-    #     vae_cfg=vae_cfg,
-    #     encoder_cfg=encoder_cfg,
-    #     chord_vocab_size=len(tokenizer.vocab),
-    #     d_model=512,
-    #     conditioning_dim=16,
-    #     pianoroll_dim=100,
-    #     grid_length=256,
-    #     guidance_dim=128,
-    #     unfold_latent=True,
-    #     device=device,
-    # )
-    # checkpoint = torch.load(model_path, map_location=device_name)
-    # model.load_state_dict(checkpoint)
-    # model.eval()
-    # model.to(device)
     return load_model(
         curriculum_type=curriculum_type,
         subfolder=subfolder,
@@ -344,14 +314,14 @@ def run_harmonization(n_clicks, selected):
     pad_token_id = tokenizer.pad_token_id
     nc_token_id = tokenizer.nc_token_id
     use_constraints = False
-    base2_generated_harmony = structured_progressive_generate(
+    generated_harmony = structured_progressive_generate(
         model=model,
         melody_grid=melody_grid.to(model.device),
         conditioning_vec=conditioning_vec.to(model.device),
         guiding_harmony=harmony_guide.to(model.device),
         num_stages=10,
         mask_token_id=tokenizer.mask_token_id,
-        temperature=1.0,
+        temperature=1.5,
         strategy='sample',
         pad_token_id=pad_token_id,      # token ID for <pad>
         nc_token_id=nc_token_id,       # token ID for <nc>
@@ -359,20 +329,24 @@ def run_harmonization(n_clicks, selected):
         chord_constraints = harmony_real.to(model.device) if use_constraints else None
     )
     gen_output_tokens = []
-    for t in base2_generated_harmony[0].tolist():
+    for t in generated_harmony[0].tolist():
         gen_output_tokens.append( tokenizer.ids_to_tokens[t] )
     # text to present to html
-    gen_output_html = condenced_str_from_token_ids(base2_generated_harmony[0].tolist(), tokenizer)
-    tmp_feats = tokenizer.features_from_token_ids( base2_generated_harmony[0].tolist() )
+    gen_output_html = condenced_str_from_token_ids(generated_harmony[0].tolist(), tokenizer)
+    tmp_feats = tokenizer.features_from_token_ids( generated_harmony[0].tolist() )
     gen_output_html = gen_output_html.split('\n')
     txt = html.Div([
         html.Strong("Harmonized:"),
         *[html.Div(line) for line in gen_output_html],
     ])
     # embedding to apply pca transformation to
-    z = model.get_z_from_harmony(base2_generated_harmony.to(device)).detach().cpu()[0].tolist()
-    print('guide-z: ', F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(guide_encoded['z']), dim=-1))
-    print('input-z: ', F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(input_encoded['z']), dim=-1))
+    z = model.get_z_from_harmony(generated_harmony.to(device)).detach().cpu()[0].tolist()
+    guide_z = F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(guide_encoded['z']), dim=-1)
+    input_z = F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(input_encoded['z']), dim=-1)
+    print('guide-z: ', guide_z)
+    print('input-z: ', input_z)
+    balance = (1.00001+guide_z)/(1.00001+input_z)
+    print('balance: ', balance)
     # appy pca
     # z_pca = pca.transform([z])[0]
     z_pca = pca.transform(np.array([tmp_feats]))[0]

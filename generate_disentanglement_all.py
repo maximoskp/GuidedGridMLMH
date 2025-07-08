@@ -14,7 +14,7 @@ import multiprocessing
 subfolder = 'unf_CA'
 train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
 
-num_melodies = 1000
+num_melodies = 100
 num_guides = 10
 
 tokenizer = None
@@ -109,7 +109,7 @@ def train_wrapper(kwargs):
 if __name__ == "__main__":
     # Load heavy objects ONCE
     tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
-
+    
     train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
 
     save_folder = '/media/maindisk/data/hooktheory_hr/guidance_disentanglement_data/'

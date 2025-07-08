@@ -35,7 +35,7 @@ def train_gmlmh(
         'latent_dim': 128,
         'embedding_dim': 64,
         'seq_len': 256,
-        'feature_dim': 356,
+        'feature_dim': 348,
     }
     encoder_cfg = {
         'nhead': 8,
