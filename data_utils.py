@@ -7,6 +7,8 @@ from music21 import converter, note, chord, harmony, meter, stream
 import torch.nn.functional as F
 from tqdm import tqdm
 import pickle
+from sklearn.metrics import pairwise_distances
+from scipy.spatial.distance import cosine
 
 def extract_lead_sheet_info(xml_path, quantization='16th', fixed_length=None):
     # Load the score and flatten
@@ -230,3 +232,76 @@ def GuidedGridMLM_collate_fn(batch):
         'features': torch.stack(features) # shape: (B, F)
     }
 # end GuidedGridMLM_collate_fn:
+
+class CosineMDS:
+    def __init__(self, n_components=2):
+        self.n_components = n_components
+        self.X_fit = None
+        self.embedding_ = None
+        self.eigvecs_ = None
+        self.eigvals_ = None
+        self.mean_distance_row_ = None
+        self.mean_distance_total_ = None
+    # end init
+
+    def fit_transform(self, X):
+        """
+        Compute 2D classical MDS embedding using cosine distance.
+        """
+        self.X_fit = X
+        N = X.shape[0]
+
+        # Step 1: Compute cosine distance matrix
+        D = pairwise_distances(X, metric='cosine')  # shape: NxN
+        D2 = D ** 2  # squared distances
+
+        # Step 2: Double-center the distance matrix
+        J = np.eye(N) - np.ones((N, N)) / N
+        B = -0.5 * J @ D2 @ J
+
+        # Step 3: Eigen-decomposition
+        eigvals, eigvecs = np.linalg.eigh(B)
+        idx = np.argsort(eigvals)[::-1]
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[:, idx]
+
+        # Take top components
+        L = np.diag(np.sqrt(eigvals[:self.n_components]))
+        V = eigvecs[:, :self.n_components]
+        Y = V @ L  # Final embedding
+
+        # Store for transform
+        self.embedding_ = Y
+        self.eigvecs_ = V
+        self.eigvals_ = eigvals[:self.n_components]
+
+        # Precompute mean distances for new point projection
+        self.mean_distance_row_ = np.mean(D2, axis=1)
+        self.mean_distance_total_ = np.mean(D2)
+
+        return Y
+    # end fit_transform
+
+    def transform(self, x_new):
+        """
+        Project a new point (1xM) into the existing MDS space using Nystrom method.
+        """
+        if self.X_fit is None:
+            raise ValueError("The model must be fitted with `fit_transform` before calling `transform`.")
+
+        x_new = x_new.reshape(1, -1)
+        N = self.X_fit.shape[0]
+
+        # Step 1: Compute squared cosine distances from x_new to each point in the original data
+        dists = pairwise_distances(self.X_fit, x_new, metric='cosine').flatten()
+        d2 = dists ** 2  # shape: (N,)
+
+        # Step 2: Apply Nystrom formula
+        d_bar = np.mean(d2)
+        b = -0.5 * (d2 - self.mean_distance_row_ - d_bar + self.mean_distance_total_)
+
+        # Step 3: Project using the stored eigendecomposition
+        y_new = b @ self.eigvecs_ / np.sqrt(self.eigvals_)
+        return y_new.reshape(1, -1)
+    # end transform
+# end class CosineMDS

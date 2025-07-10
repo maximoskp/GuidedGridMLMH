@@ -1,13 +1,14 @@
 import torch
 import torch.nn.functional as F
-from data_utils import GuidedGridMLMDataset, GuidedGridMLM_collate_fn
+from data_utils import GuidedGridMLMDataset, GuidedGridMLM_collate_fn, CosineMDS
 from torch.utils.data import DataLoader
 from GridMLM_tokenizers import GuidedGridMLMTokenizer
 from models import GuidedMLMH
 from tqdm import tqdm
 import numpy as np
 # from sklearn.manifold import TSNE
-from sklearn.decomposition import PCA, KernelPCA
+from sklearn.decomposition import PCA, KernelPCA, NMF
+import umap
 import plotly.express as px
 import pandas as pd
 import dash
@@ -19,12 +20,16 @@ import os
 df = None
 data_all = None
 pca = None
+nmf = None
+umap_model = None
+mds = None
 
 device_name = 'cuda:2'
 train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
 val_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
 jazz_dir = '/media/maindisk/data/gjt_melodies/gjt_CA'
-subfolder = 'unf_CA'
+# subfolder = 'unf_CA'
+subfolder = 'disentangle/unf_CA'
 curriculum_type='random'
 ablation = 'all'
 
@@ -112,7 +117,7 @@ def condenced_str_from_token_ids(inp_ids, tokenizer):
 # end condenced_str_from_token_ids
 
 def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
-    global pca
+    global mds
     print('FUN apply_pca')
     zs = []
     z_idxs = []
@@ -135,19 +140,29 @@ def apply_pca(model, tokenizer, val_dataset, jazz_dataset):
     #     full_harmony = torch.tensor(d['input_ids']).reshape(1, len(d['input_ids']))
     #     tmp_str = condenced_str_from_token_ids(d['input_ids'], tokenizer)
     #     z_tokens.append(tmp_str)
-    #     data_all.append( d )
     #     z = model.get_z_from_harmony(full_harmony.to(device)).detach().cpu()[0].tolist()
     #     d['z'] = z
+    #     data_all.append( d )
     #     zs.append(z)
     #     z_idxs.append(1)
-    #     feats.append(d['features'])
+    #     # feats.append(d['features'])
+    #     feats.append(tokenizer.features_from_token_ids(d['input_ids']))
 
     # x_np = np.array( zs )
     x_np = np.array(feats)
 
     # pca = PCA(n_components=2)
-    pca = KernelPCA(n_components=2, kernel='cosine')
-    y = pca.fit_transform( x_np )
+    # umap_model = umap.UMAP(n_components=2, metric='cosine')
+    mds = CosineMDS()
+    # pca = KernelPCA(n_components=2, kernel='cosine')
+    # nmf = NMF(n_components=2, init='random', random_state=0)
+    # y = pca.fit_transform( x_np )
+    # y = nmf.fit_transform( x_np )
+    # H = nmf.components_
+    # y = umap_model.fit_transform( x_np )
+    y = mds.fit_transform( x_np )
+    print('x_np: ', x_np.shape)
+    print('y: ', y.shape)
     
     # Combine into a DataFrame for easy Plotly integration
     df = pd.DataFrame({
@@ -302,11 +317,11 @@ def handle_click(clickData, selected):
     prevent_initial_call=True,
 )
 def run_harmonization(n_clicks, selected):
-    global pca, df
+    global df, mds
     if not selected or selected['melody'] is None or selected['guide'] is None:
         return "Please select both a melody and a guide first."
-    guide_encoded = data_all[selected['melody']]
-    input_encoded = data_all[selected['guide']]
+    input_encoded = data_all[selected['melody']]
+    guide_encoded = data_all[selected['guide']]
     harmony_guide = torch.LongTensor(guide_encoded['input_ids']).reshape(1, len(guide_encoded['input_ids']))
     harmony_real = torch.LongTensor(input_encoded['input_ids']).reshape(1, len(input_encoded['input_ids']))
     melody_grid = torch.FloatTensor( input_encoded['pianoroll'] ).reshape( 1, input_encoded['pianoroll'].shape[0], input_encoded['pianoroll'].shape[1] )
@@ -345,15 +360,27 @@ def run_harmonization(n_clicks, selected):
     input_z = F.cosine_similarity(torch.FloatTensor(z), torch.FloatTensor(input_encoded['z']), dim=-1)
     print('guide-z: ', guide_z)
     print('input-z: ', input_z)
-    balance = (1.00001+guide_z)/(1.00001+input_z)
-    print('balance: ', balance)
+    balance_z = (1.00001+guide_z)/(1.00001+input_z)
+    print('balance_z: ', balance_z)
+    guide_f = F.cosine_similarity(torch.FloatTensor(tmp_feats), torch.FloatTensor(guide_encoded['features']), dim=-1)
+    input_f = F.cosine_similarity(torch.FloatTensor(tmp_feats), torch.FloatTensor(input_encoded['features']), dim=-1)
+    print('guide-f: ', guide_f)
+    print('input-f: ', input_f)
+    balance_f = (1.00001+guide_f)/(1.00001+input_f)
+    print('balance_f: ', balance_f)
     # appy pca
-    # z_pca = pca.transform([z])[0]
-    z_pca = pca.transform(np.array([tmp_feats]))[0]
+    # proj_2D = pca.transform([z])[0]
+    # proj_2D = pca.transform(np.array([tmp_feats]))[0]
+    # W = nmf.fit_transform(np.array([tmp_feats]).reshape(-1,1))        # shape: Nx2
+    # proj_2D = nmf.components_             # shape: 2xM
+    # proj_2D = umap_model.transform([z])[0]
+    # proj_2D = mds.transform(np.array(z))
+    proj_2D = mds.transform(np.array(tmp_feats))
+    print('proj_2D:', proj_2D.shape)
     # append new point to df
     new_point = {
-        'x': z_pca[0],
-        'y': z_pca[1],
+        'x': proj_2D[0,0],
+        'y': proj_2D[0,1],
         'class': 2,
         'token': gen_output_tokens,
         'hover_text': txt,
@@ -361,11 +388,11 @@ def run_harmonization(n_clicks, selected):
         'symbol': symbol_map['2'],
         'size': size_map['2']
     }
-    print(z_pca)
+    # print(proj_2D)
     guide_z = [ df.iloc[selected['guide']]['x'] , df.iloc[selected['guide']]['y'] ]
     input_z = [ df.iloc[selected['melody']]['x'] , df.iloc[selected['melody']]['y'] ]
-    print('PCA guide-z', F.cosine_similarity(torch.FloatTensor(z_pca), torch.FloatTensor(guide_z), dim=-1))
-    print('PCA input-z', F.cosine_similarity(torch.FloatTensor(z_pca), torch.FloatTensor(input_z), dim=-1))
+    print('proj guide-z', F.cosine_similarity(torch.FloatTensor(proj_2D), torch.FloatTensor(guide_z), dim=-1))
+    print('proj input-z', F.cosine_similarity(torch.FloatTensor(proj_2D), torch.FloatTensor(input_z), dim=-1))
     df = pd.concat([df, pd.DataFrame([new_point])], ignore_index=True)
     return make_figure(selected), txt
 
