@@ -65,7 +65,10 @@ def random_progressive_generate(
     # Find the last index in melody_grid that contains a non-zero value
     if force_fill:
         active = (melody_grid != 0).any(dim=-1).squeeze(0)  # shape: (seq_len,)
-        last_active_index = active.nonzero(as_tuple=True)[0].max().item()
+        try:
+            last_active_index = active.nonzero(as_tuple=True)[0].max().item()
+        except:
+            last_active_index = -1
     else:
         last_active_index = -1  # Don't clamp anything if not forced
     for stage in range(num_stages):
@@ -139,7 +142,10 @@ def structured_progressive_generate(
     # Find the last index in melody_grid that contains a non-zero value
     if force_fill:
         active = (melody_grid != 0).any(dim=-1).squeeze(0)  # shape: (seq_len,)
-        last_active_index = active.nonzero(as_tuple=True)[0].max().item()
+        try:
+            last_active_index = active.nonzero(as_tuple=True)[0].max().item()
+        except:
+            last_active_index = -1
     else:
         last_active_index = -1  # Don't clamp anything if not forced
 

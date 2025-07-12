@@ -64,6 +64,10 @@ def generate_disentanglement_data(
     new_dataset = []
     for i_input in tqdm(input_idxs[:num_melodies]):
         input_encoded = input_dataset[i_input]
+        tmp_data = {
+            'input_encoded': input_encoded,
+            'results': [] 
+        }
         # permutation of guide indices
         # exclude the input idx
         tmp_idxs = np.arange(len(guide_dataset))
@@ -99,8 +103,14 @@ def generate_disentanglement_data(
             new_d['input_ids'] = new_input_ids
             new_d['attention_mask'] = new_attention
             new_d['features'] = tokenizer.features_from_token_ids( new_input_ids )
-            new_dataset.append( new_d )
-    save_folder += subfolder + '_' + curriculum_type + '_' + ablation + '_' + in_name + '_' + gu_name + '.pickle'
+            tmp_data['results'].append(
+                {
+                    'guide_encoded': guide_encoded,
+                    'generated': new_d
+                }
+            )
+        new_dataset.append( tmp_data )
+    save_folder += subfolder.replace('/', '_') + '_' + curriculum_type + '_' + ablation + '_' + in_name + '_' + gu_name + '.pickle'
     with open(save_folder, 'wb') as f:
         pickle.dump(new_dataset, f)
     return new_dataset
