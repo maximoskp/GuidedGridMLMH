@@ -14,8 +14,8 @@ import multiprocessing
 subfolder = 'unf_CA'
 train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
 
-num_melodies = 100
-num_guides = 10
+num_melodies = 500
+num_guides = 20
 
 tokenizer = None
 

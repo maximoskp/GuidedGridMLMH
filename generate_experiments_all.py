@@ -58,24 +58,25 @@ def generate_disentanglement_data(
     # # load training data
     # train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
     # permutation of melody indices
-    input_idxs = np.random.permutation( len(input_dataset) )
-    guide_idxs = np.random.permutation( len(guide_dataset) )
+    # input_idxs = np.random.permutation( len(input_dataset) )
+    # guide_idxs = np.random.permutation( len(guide_dataset) )
     # initialize new dataset
     new_dataset = []
-    for i_input in tqdm(input_idxs[:num_melodies]):
+    for i_input in tqdm(range(len(input_dataset))):
         input_encoded = input_dataset[i_input]
         tmp_data = {
             'input_encoded': input_encoded,
             'results': [] 
         }
-        # permutation of guide indices
-        # exclude the input idx
-        tmp_idxs = np.arange(len(guide_dataset))
-        if i_input in tmp_idxs:
-            all_indexes = np.delete(tmp_idxs, i_input)
-        # permutation of the remaining indices
-        guide_idxs = np.random.permutation( all_indexes )
-        for i_guide in guide_idxs[:num_guides]:
+        # # permutation of guide indices
+        # # exclude the input idx
+        # tmp_idxs = np.arange(len(guide_dataset))
+        # if i_input in tmp_idxs:
+        #     all_indexes = np.delete(tmp_idxs, i_input)
+        # # permutation of the remaining indices
+        # guide_idxs = np.random.permutation( all_indexes )
+        for i_tmp in range(20):
+            i_guide = (i_input + 100 + i_tmp)%len(guide_dataset)
             guide_encoded = guide_dataset[i_guide]
             harmony_guide = torch.LongTensor(guide_encoded['input_ids']).reshape(1, len(guide_encoded['input_ids']))
             # harmony_real = torch.LongTensor(input_encoded['input_ids']).reshape(1, len(input_encoded['input_ids']))
