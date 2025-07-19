@@ -46,7 +46,7 @@ for curriculum_type in curricula:
                     base_name = '_'.join( [subfolder.replace('/','_'), curriculum_type, ablation, input_dataset, guide_dataset] )
 
                     csv_file = results_folder + base_name + '.csv'
-                    result_fields = ['z_inp_gen', 'z_gui_gen', 'z_inp_gui', \
+                    result_fields = ['z_inp_gen', 'z_gui_gen', 'z_inp_gui', 'z_alpha', \
                                     'f_inp_gen', 'f_gui_gen', 'f_inp_gui']
                     with open(csv_file, 'w') as f:
                         writer = csv.writer(f)
@@ -61,6 +61,13 @@ for curriculum_type in curricula:
                         original_ids = d['input_encoded']['input_ids']
                         original_fs = d['input_encoded']['features']
                         results = d['results']
+                        z_inp_gen_max = -1000
+                        z_gui_gen_max = -1000
+                        z_inp_gui_max = -1000
+                        z_alpha_max = -1000
+                        f_inp_gen_max = -1000
+                        f_gui_gen_max = -1000
+                        f_inp_gui_max = -1000
                         for r in results:
                             guiding_ids = r['guide_encoded']['input_ids']
                             guiding_fs = r['guide_encoded']['features']
@@ -75,14 +82,30 @@ for curriculum_type in curricula:
                             z_gui_gen = F.cosine_similarity(torch.FloatTensor(z_guiding), torch.FloatTensor(z_gen), dim=-1).item()
                             z_inp_gui = F.cosine_similarity(torch.FloatTensor(z_guiding), torch.FloatTensor(z_original), dim=-1).item()
 
+                            # difference projection
+                            v = np.array(z_guiding) - np.array(z_original)
+                            u = np.array(z_gen) - np.array(z_original)
+                            # projection
+                            z_alpha = 2*np.dot(u, v) / np.dot(v, v) - 1
+
                             f_inp_gen = jaccard_score( np.array(original_fs) > 0 , np.array( gen_fs ) > 0 )
                             f_gui_gen = jaccard_score( np.array(guiding_fs) > 0 , np.array( gen_fs ) > 0 )
                             f_inp_gui = jaccard_score( np.array(original_fs) > 0 , np.array( guiding_fs ) > 0 )
 
-                            with open( csv_file, 'a' ) as f:
-                                writer = csv.writer(f)
-                                writer.writerow( [z_inp_gen, z_gui_gen, z_inp_gui, \
-                                                f_inp_gen, f_gui_gen, f_inp_gui] )
+                            if z_alpha > z_alpha_max:
+                                z_inp_gen_max = z_inp_gen
+                                z_gui_gen_max = z_gui_gen
+                                z_inp_gui_max = z_inp_gui
+                                z_alpha_max = z_alpha
+                                f_inp_gen_max = f_inp_gen
+                                f_gui_gen_max = f_gui_gen
+                                f_inp_gui_max = f_inp_gui
+
+                        with open( csv_file, 'a' ) as f:
+                            writer = csv.writer(f)
+                            writer.writerow( [z_inp_gen_max, z_gui_gen_max, \
+                                z_inp_gui_max, z_alpha_max, \
+                                f_inp_gen_max, f_gui_gen_max, f_inp_gui_max] )
 
                     res = pd.read_csv( csv_file )
                     stat_z, p_z = mannwhitneyu(res['z_inp_gen'], res['z_gui_gen'])
