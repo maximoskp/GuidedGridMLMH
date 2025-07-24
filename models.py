@@ -228,6 +228,162 @@ class GuidedMLMH(nn.Module):
     # end get_z_from_harmony
 # end class GuidedMLMH
 
+# -----------------------------------------------------------------
+# CROSS ATTENTION
+# -----------------------------------------------------------------
+
+def remove_consecutive_duplicates(lst):
+    if not lst:
+        return []
+    result = [lst[0]]
+    for item in lst[1:]:
+        if item != result[-1]:
+            result.append(item)
+    return result
+# end remove_consecutive_duplicates
+
+class CrossTransformerEncoderLayer(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1):
+        super().__init__()
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+        self.cross_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=True)
+
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.norm3 = nn.LayerNorm(d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
+
+        self.activation = nn.GELU()
+    # end init
+
+    def forward(self, src, guidance_seq):
+        src2 = self.self_attn(src, src, src)[0]
+        src = src + self.dropout1(src2)
+        src = self.norm1(src)
+
+        src2 = self.cross_attn(src, guidance_seq, guidance_seq)[0]
+        src = src + self.dropout2(src2)
+        src = self.norm2(src)
+
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout3(src2)
+        src = self.norm3(src)
+        return src
+    # end forward
+# end CrossTransformerEncoderLayer
+
+class GuidanceBiLSTM(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, hidden_dim, num_layers=1, bidirectional=True):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers=num_layers,
+                            bidirectional=bidirectional, batch_first=True)
+        self.output_dim = hidden_dim * 2 if bidirectional else hidden_dim
+    # end init
+
+    def forward(self, token_seq):
+        # short_seq = remove_consecutive_duplicates(token_seq)
+        # emb = self.embedding(short_seq)
+        emb = self.embedding(token_seq)
+        output, _ = self.lstm(emb)
+        return output  # (B, L, H*2)
+    # end forward
+# end GuidanceBiLSTM
+
+class CrossGridMLMHEncoder(nn.Module):
+    def __init__(self, chord_vocab_size, d_model, nhead, num_layers,
+                 stage_embedding_dim, max_stages, device='cpu'):
+        super().__init__()
+        self.device = device
+
+        self.stage_embedding = nn.Embedding(max_stages, stage_embedding_dim, device=device)
+        self.stage_proj = nn.Linear(d_model + stage_embedding_dim, d_model, device=device)
+
+        self.layers = nn.ModuleList([
+            CrossTransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=4*d_model, dropout=0.1)
+            for _ in range(num_layers)
+        ])
+
+        self.input_norm = nn.LayerNorm(d_model)
+        self.output_norm = nn.LayerNorm(d_model)
+        self.output_head = nn.Linear(d_model, chord_vocab_size, device=device)
+    # end init
+
+    def forward(self, full_seq, stage_indices, z_unused, guidance_seq):
+        if stage_indices is not None:
+            stage_emb = self.stage_embedding(stage_indices).unsqueeze(1).repeat(1, full_seq.size(1), 1)
+            full_seq = torch.cat([full_seq, stage_emb], dim=-1)
+            full_seq = self.stage_proj(full_seq)
+
+        full_seq = self.input_norm(full_seq)
+        for layer in self.layers:
+            full_seq = layer(full_seq, guidance_seq)
+        full_seq = self.output_norm(full_seq)
+        return self.output_head(full_seq[:, -256:, :])
+    # end forward
+# end CrossGridMLMHEncoder
+
+class CrossGuidedMLMH(nn.Module):
+    def __init__(self, encoder_cfg,
+                 chord_vocab_size, d_model,
+                 conditioning_dim, pianoroll_dim, grid_length,
+                 guidance_lstm_cfg, device='cpu'):
+        super().__init__()
+        self.device = device
+        self.grid_length = grid_length
+        self.seq_len = 1 + 2 * grid_length
+
+        self.condition_proj = nn.Linear(conditioning_dim, d_model, device=device)
+        self.melody_proj = nn.Linear(pianoroll_dim, d_model, device=device)
+        self.harmony_embedding = nn.Embedding(chord_vocab_size, d_model, device=device)
+        self.pos_embedding = nn.Parameter(torch.randn(1, self.seq_len, d_model))
+
+        self.guidance_encoder = GuidanceBiLSTM(**guidance_lstm_cfg)
+        self.proj_guidance = nn.Linear(self.guidance_encoder.output_dim, d_model)
+
+        self.encoder = CrossGridMLMHEncoder(chord_vocab_size=chord_vocab_size, d_model=d_model,
+                                            **encoder_cfg, device=device)
+        
+        self.recon_loss_fn = nn.CrossEntropyLoss()
+    # end init
+
+    def forward(self, conditioning_vec, melody_grid, harmony_tokens, guiding_harmony,
+                stage_indices, return_loss=False):
+        B = conditioning_vec.size(0)
+
+        cond_emb = self.condition_proj(conditioning_vec).unsqueeze(1)
+        melody_emb = self.melody_proj(melody_grid)
+
+        if harmony_tokens is not None:
+            harmony_emb = self.harmony_embedding(harmony_tokens)
+        else:
+            harmony_emb = torch.zeros(B, self.grid_length, melody_emb.size(-1), device=self.device)
+
+        input_seq = torch.cat([cond_emb, melody_emb, harmony_emb], dim=1)
+        input_seq += self.pos_embedding[:, :input_seq.size(1), :]
+
+        guidance_enc = self.guidance_encoder(guiding_harmony)
+        guidance_proj = self.proj_guidance(guidance_enc)
+
+        harmony_output = self.encoder(input_seq, stage_indices, None, guidance_proj)
+        if return_loss:
+            return harmony_output, self.compute_loss(harmony_output, harmony_tokens)
+        else:
+            return harmony_output
+    # end forward
+
+    def compute_loss(self, harmony_output, harmony_tokens):
+        harmony_output = harmony_output.permute(0, 2, 1)  # (B, V, L)
+        loss = self.recon_loss_fn(harmony_output, harmony_tokens)
+        return loss
+    # end compute_loss
+# end CrossGuidedMLMH
 
 '''
 FiLM approach 

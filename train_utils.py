@@ -451,3 +451,203 @@ def train_with_curriculum(
                         transformer_path=transformer_path,
                         tqdm_position=tqdm_position
                     )
+# end train_with_curriculum
+
+# -----------------------------------------------------------------
+# CROSS ATTENTION
+# -----------------------------------------------------------------
+
+def validation_cross_loop(model, valloader, mask_token_id, loss_fn, epoch, step, \
+                    curriculum_type, train_loss, train_accuracy, \
+                    train_perplexity, train_token_entropy,
+                    best_val_loss, saving_version, \
+                    results_path=None, transformer_path=None,tqdm_position=0):
+    device = model.device
+    model.eval()
+    with torch.no_grad():
+        val_loss = 0
+        running_loss = 0
+        batch_num = 0
+        running_accuracy = 0
+        val_accuracy = 0
+        running_perplexity = 0
+        val_perplexity = 0
+        running_token_entropy = 0
+        val_token_entropy = 0
+        print('validation')
+        with tqdm(valloader, unit='batch', position=tqdm_position) as tepoch:
+            tepoch.set_description(f'Epoch {epoch}@{step}| val_{curriculum_type[:1]}')
+            for batch in tepoch:
+                perplexity_metric.reset()
+                melody_grid = batch["pianoroll"].to(device)           # (B, 256, 140)
+                harmony_gt = batch["input_ids"].to(device)         # (B, 256)
+                conditioning_vec = batch["time_signature"].to(device)  # (B, C0)
+                features = batch["features"].to(device)  # (B, F)
+                
+                # Apply masking to harmony
+                harmony_input, harmony_target, stage_indices = apply_masking(
+                    harmony_gt,
+                    mask_token_id,
+                    total_stages=10,
+                    curriculum_type=curriculum_type
+                )
+
+                # Forward pass
+                logits, total_loss = model(
+                    conditioning_vec,
+                    melody_grid,
+                    harmony_input,
+                    harmony_gt,
+                    stage_indices,
+                    return_loss=True
+                )
+                
+                # update loss and accuracy
+                batch_num += 1
+                running_loss += total_loss.item()
+                val_loss = running_loss/batch_num
+
+                # accuracy
+                predictions = logits.argmax(dim=-1)
+                mask = harmony_target != -100
+                running_accuracy += (predictions[mask] == harmony_target[mask]).sum().item()/mask.sum().item()
+                val_accuracy = running_accuracy/batch_num
+                # perplexity
+                running_perplexity += perplexity_metric.update(logits, harmony_target).compute().item()
+                val_perplexity = running_perplexity/batch_num
+                # token entropy
+                _, entropy_per_batch = compute_normalized_token_entropy(logits, harmony_target, pad_token_id=-100)
+                running_token_entropy += entropy_per_batch
+                val_token_entropy = running_token_entropy/batch_num
+
+                tepoch.set_postfix(loss=val_loss, accuracy=val_accuracy)
+            # end for batch
+    # end with tqdm
+    if transformer_path is not None:
+        if best_val_loss > val_loss:
+            print('saving!')
+            saving_version += 1
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), transformer_path)
+    print(f'validation: accuracy={val_accuracy}, loss={val_loss}')
+    print('results_path: ', results_path)
+    if results_path is not None:
+        with open( results_path, 'a' ) as f:
+            writer = csv.writer(f)
+            writer.writerow( [epoch, step, train_loss, train_accuracy, \
+                        val_loss, val_accuracy, \
+                        train_perplexity, train_token_entropy, \
+                        val_perplexity, val_token_entropy, saving_version] )
+    return best_val_loss, saving_version
+# end validation_cross_loop
+
+def train_cross_with_curriculum(
+    model, optimizer, trainloader, valloader, loss_fn, mask_token_id,
+    epochs=100,
+    curriculum_type='random',  # 'random', 'base2'
+    results_path=None,
+    transformer_path=None,
+    tqdm_position=0,
+    validations_per_epoch=1,
+):
+    device = next(model.parameters()).device
+    perplexity_metric.to(device)
+    best_val_loss = np.inf
+    saving_version = 0
+
+    print('results_path:', results_path)
+    if results_path is not None:
+        result_fields = ['epoch', 'step', 'train_loss', 'train_acc', \
+                        'val_loss', 'val_acc', \
+                        'train_ppl', 'train_te', \
+                        'val_ppl', 'val_te', 'sav_version']
+        with open(results_path, 'w') as f:
+            writer = csv.writer(f)
+            writer.writerow(result_fields)
+
+    total_steps = len(trainloader) * epochs
+    warmup_steps = int(0.1 * total_steps)
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer, num_warmup_steps=warmup_steps, num_training_steps=total_steps)
+    step = 0
+
+    for epoch in range(epochs):
+        train_loss = 0
+        running_loss = 0
+        batch_num = 0
+        running_accuracy = 0
+        train_accuracy = 0
+        running_perplexity = 0
+        train_perplexity = 0
+        running_token_entropy = 0
+        train_token_entropy = 0
+
+        with tqdm(trainloader, unit='batch', position=tqdm_position) as tepoch:
+            tepoch.set_description(f'Epoch {epoch}@{step} | trn_{curriculum_type[:1]}')
+            for batch in tepoch:
+                perplexity_metric.reset()
+                model.train()
+
+                melody_grid = batch["pianoroll"].to(device)             # (B, 256, 140)
+                harmony_gt = batch["input_ids"].to(device)             # (B, 256)
+                conditioning_vec = batch["time_signature"].to(device)  # (B, C0)
+
+                harmony_input, harmony_target, stage_indices = apply_masking(
+                    harmony_gt,
+                    mask_token_id,
+                    total_stages=10,
+                    curriculum_type=curriculum_type
+                )
+                logits, total_loss = model(
+                    conditioning_vec,
+                    melody_grid,
+                    harmony_input,
+                    harmony_gt,
+                    stage_indices,
+                    return_loss=True
+                )
+
+                optimizer.zero_grad()
+                total_loss.backward()
+                optimizer.step()
+                scheduler.step()
+
+                batch_num += 1
+                running_loss += total_loss.item()
+                train_loss = running_loss / batch_num
+
+                predictions = logits.argmax(dim=-1)
+                mask = harmony_target != -100
+                running_accuracy += (predictions[mask] == harmony_target[mask]).sum().item() / mask.sum().item()
+                train_accuracy = running_accuracy / batch_num
+
+                running_perplexity += perplexity_metric.update(logits, harmony_target).compute().item()
+                train_perplexity = running_perplexity / batch_num
+
+                _, entropy_per_batch = compute_normalized_token_entropy(logits, harmony_target, pad_token_id=-100)
+                running_token_entropy += entropy_per_batch
+                train_token_entropy = running_token_entropy / batch_num
+
+                tepoch.set_postfix(loss=train_loss, accuracy=train_accuracy)
+                step += 1
+
+                if step % (total_steps // (epochs*validations_per_epoch)) == 0 or step == total_steps:
+                    best_val_loss, saving_version = validation_cross_loop(
+                        model,
+                        valloader,
+                        mask_token_id,
+                        loss_fn,
+                        epoch,
+                        step,
+                        curriculum_type,
+                        train_loss,
+                        train_accuracy,
+                        train_perplexity,
+                        train_token_entropy,
+                        best_val_loss,
+                        saving_version,
+                        results_path=results_path,
+                        transformer_path=transformer_path,
+                        tqdm_position=tqdm_position
+                    )
+# end train_cross_with_curriculum

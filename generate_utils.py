@@ -4,7 +4,7 @@ from music21 import harmony, stream, metadata, chord, note, key, meter, tempo, d
 import mir_eval
 import numpy as np
 from copy import deepcopy
-from models import GuidedMLMH
+from models import GuidedMLMH, CrossGuidedMLMH
 import os
 from music_utils import transpose_score
 
@@ -381,6 +381,53 @@ def load_model(
     model.to(device)
     return model
 # end load_model
+
+def load_cross_model(
+        curriculum_type = 'random',
+        subfolder='CA',
+        device_name = 'cuda:0',
+        tokenizer=None
+    ):
+    if device_name == 'cpu':
+        device = torch.device('cpu')
+    else:
+        if torch.cuda.is_available():
+            device = torch.device(device_name)
+        else:
+            print('Selected device not available: ' + device_name)
+    # Configuration for encoder and guidance BiLSTM
+    encoder_cfg = {
+        'nhead': 8,
+        'num_layers': 8,
+        'stage_embedding_dim': 64,
+        'max_stages': 10,
+    }
+
+    guidance_lstm_cfg = {
+        'vocab_size': len(tokenizer.vocab),
+        'embedding_dim': 64,
+        'hidden_dim': 128,
+        'num_layers': 1,
+        'bidirectional': True
+    }
+
+    model = CrossGuidedMLMH(
+        encoder_cfg=encoder_cfg,
+        chord_vocab_size=len(tokenizer.vocab),
+        d_model=512,
+        conditioning_dim=16,
+        pianoroll_dim=100,
+        grid_length=256,
+        guidance_lstm_cfg=guidance_lstm_cfg,
+        device=device,
+    )
+    model_path = 'saved_models/cross/' + subfolder + '/' + curriculum_type + '.pt'
+    checkpoint = torch.load(model_path, map_location=device_name)
+    model.load_state_dict(checkpoint)
+    model.eval()
+    model.to(device)
+    return model
+# end load_cross_model
 
 def generate_files_with_base2(
         model,

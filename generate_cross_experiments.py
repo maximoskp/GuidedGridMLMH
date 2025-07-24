@@ -3,46 +3,51 @@ import torch.nn.functional as F
 from data_utils import GuidedGridMLMDataset, GuidedGridMLM_collate_fn
 from torch.utils.data import DataLoader
 from GridMLM_tokenizers import GuidedGridMLMTokenizer
-from models import GuidedMLMH
+from models import CrossGuidedMLMH
 from tqdm import tqdm
 import numpy as np
-from generate_utils import load_model, structured_progressive_generate, random_progressive_generate
+from generate_utils import load_cross_model, structured_progressive_generate, random_progressive_generate
 from copy import deepcopy
 import pickle
 import multiprocessing
 
-subfolder = 'unf_CA'
-train_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_train'
+subfolders = ['unf_CA', 'disentangle/unf_CA']
+test_dir = '/media/maindisk/data/hooktheory_hr/hooktheory_CA_test'
+jazz_dir = '/media/maindisk/data/gjt_melodies/gjt_CA'
 
-num_melodies = 500
+num_melodies = 100
 num_guides = 20
 
 tokenizer = None
 
-train_dataset = None
+test_dataset = None
+jazz_dataset = None
 
 save_folder = None
 
-def init_worker(td, tok, sf):
-    global train_dataset, tokenizer, save_folder
-    train_dataset = td
+def init_worker(td, jd, tok, sf):
+    global test_dataset, jazz_dataset, tokenizer, save_folder
+    test_dataset = td
+    jazz_dataset = jd
     tokenizer = tok
     save_folder = sf
 # end init_worker
 
 def generate_disentanglement_data(
         tokenizer,
-        train_dataset,
         save_folder,
+        input_dataset=None,
+        guide_dataset=None,
+        in_name='',
+        gu_name='',
         device_name = 'cuda:2',
         subfolder = 'unf_CA',
         curriculum_type='random',
-        ablation = 'all',
         num_melodies = 1000,
         num_guides = 20,
     ):
     # load model
-    model = load_model( curriculum_type, subfolder, ablation, device_name, tokenizer )
+    model = load_cross_model( curriculum_type, subfolder, device_name, tokenizer )
     # generation function
     if curriculum_type == 'random':
         gen_fun = random_progressive_generate
@@ -52,18 +57,26 @@ def generate_disentanglement_data(
     # # load training data
     # train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
     # permutation of melody indices
-    input_idxs = np.random.permutation( len(train_dataset) )
+    # input_idxs = np.random.permutation( len(input_dataset) )
+    # guide_idxs = np.random.permutation( len(guide_dataset) )
     # initialize new dataset
     new_dataset = []
-    for i_input in tqdm(input_idxs[:num_melodies]):
-        input_encoded = train_dataset[i_input]
-        # permutation of guide indices
-        # exclude the input idx
-        all_indexes = np.delete(np.arange(len(train_dataset)), i_input)
-        # permutation of the remaining indices
-        guide_idxs = np.random.permutation( all_indexes )
-        for i_guide in guide_idxs[:num_guides]:
-            guide_encoded = train_dataset[i_guide]
+    for i_input in tqdm(range(len(input_dataset))):
+        input_encoded = input_dataset[i_input]
+        tmp_data = {
+            'input_encoded': input_encoded,
+            'results': []
+        }
+        # # permutation of guide indices
+        # # exclude the input idx
+        # tmp_idxs = np.arange(len(guide_dataset))
+        # if i_input in tmp_idxs:
+        #     all_indexes = np.delete(tmp_idxs, i_input)
+        # # permutation of the remaining indices
+        # guide_idxs = np.random.permutation( all_indexes )
+        for i_tmp in range(20):
+            i_guide = (i_input + 100 + i_tmp)%len(guide_dataset)
+            guide_encoded = guide_dataset[i_guide]
             harmony_guide = torch.LongTensor(guide_encoded['input_ids']).reshape(1, len(guide_encoded['input_ids']))
             # harmony_real = torch.LongTensor(input_encoded['input_ids']).reshape(1, len(input_encoded['input_ids']))
             melody_grid = torch.FloatTensor( input_encoded['pianoroll'] ).reshape( 1, input_encoded['pianoroll'].shape[0], input_encoded['pianoroll'].shape[1] )
@@ -90,8 +103,14 @@ def generate_disentanglement_data(
             new_d['input_ids'] = new_input_ids
             new_d['attention_mask'] = new_attention
             new_d['features'] = tokenizer.features_from_token_ids( new_input_ids )
-            new_dataset.append( new_d )
-    save_folder += subfolder + '_' + curriculum_type + '_' + ablation + '.pickle'
+            tmp_data['results'].append(
+                {
+                    'guide_encoded': guide_encoded,
+                    'generated': new_d
+                }
+            )
+        new_dataset.append( tmp_data )
+    save_folder += subfolder.replace('/', '_') + '_' + in_name + '_' + gu_name + '.pickle'
     with open(save_folder, 'wb') as f:
         pickle.dump(new_dataset, f)
     return new_dataset
@@ -100,7 +119,6 @@ def generate_disentanglement_data(
 def train_wrapper(kwargs):
     return generate_disentanglement_data(
         tokenizer,
-        train_dataset,
         save_folder,
         **kwargs
     )
@@ -110,72 +128,100 @@ if __name__ == "__main__":
     # Load heavy objects ONCE
     tokenizer = GuidedGridMLMTokenizer(fixed_length=256)
     
-    train_dataset = GuidedGridMLMDataset(train_dir, tokenizer, 512, frontloading=True)
+    test_dataset = GuidedGridMLMDataset(test_dir, tokenizer, 512, frontloading=True)
+    jazz_dataset = GuidedGridMLMDataset(jazz_dir, tokenizer, 512, frontloading=True)
 
-    save_folder = '/media/maindisk/data/hooktheory_hr/guidance_disentanglement_data/'
-
+    save_folder = '/media/maindisk/data/hooktheory_hr/guidance_experiment_data/cross/'
+    datasets = {
+        'test': test_dataset,
+        'jazz': jazz_dataset
+    }
     task_args = [
         {
+            'input_dataset': test_dataset,
+            'guide_dataset': test_dataset,
+            'in_name': 'test',
+            'gu_name': 'test',
             'device_name': 'cuda:2',
-            'subfolder': subfolder,
+            'subfolder': subfolders[0],
             'curriculum_type': 'random',
-            'ablation': 'all',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
         {
+            'input_dataset': jazz_dataset,
+            'guide_dataset': test_dataset,
+            'in_name': 'jazz',
+            'gu_name': 'test',
             'device_name': 'cuda:2',
-            'subfolder': subfolder,
+            'subfolder': subfolders[0],
             'curriculum_type': 'random',
-            'ablation': 'con',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
         {
+            'input_dataset': test_dataset,
+            'guide_dataset': jazz_dataset,
+            'in_name': 'test',
+            'gu_name': 'jazz',
             'device_name': 'cuda:2',
-            'subfolder': subfolder,
+            'subfolder': subfolders[0],
             'curriculum_type': 'random',
-            'ablation': 'kl',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
         {
+            'input_dataset': jazz_dataset,
+            'guide_dataset': jazz_dataset,
+            'in_name': 'jazz',
+            'gu_name': 'jazz',
             'device_name': 'cuda:2',
-            'subfolder': subfolder,
+            'subfolder': subfolders[0],
             'curriculum_type': 'random',
-            'ablation': 'rec',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
         {
-            'device_name': 'cuda:2',
-            'subfolder': subfolder,
-            'curriculum_type': 'base2',
-            'ablation': 'all',
+            'input_dataset': test_dataset,
+            'guide_dataset': test_dataset,
+            'in_name': 'test',
+            'gu_name': 'test',
+            'device_name': 'cuda:1',
+            'subfolder': subfolders[1],
+            'curriculum_type': 'random',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
         {
-            'device_name': 'cuda:2',
-            'subfolder': subfolder,
-            'curriculum_type': 'base2',
-            'ablation': 'con',
+            'input_dataset': jazz_dataset,
+            'guide_dataset': test_dataset,
+            'in_name': 'jazz',
+            'gu_name': 'test',
+            'device_name': 'cuda:1',
+            'subfolder': subfolders[1],
+            'curriculum_type': 'random',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
         {
-            'device_name': 'cuda:2',
-            'subfolder': subfolder,
-            'curriculum_type': 'base2',
-            'ablation': 'kl',
+            'input_dataset': test_dataset,
+            'guide_dataset': jazz_dataset,
+            'in_name': 'test',
+            'gu_name': 'jazz',
+            'device_name': 'cuda:1',
+            'subfolder': subfolders[1],
+            'curriculum_type': 'random',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
         {
-            'device_name': 'cuda:2',
-            'subfolder': subfolder,
-            'curriculum_type': 'base2',
-            'ablation': 'rec',
+            'input_dataset': jazz_dataset,
+            'guide_dataset': jazz_dataset,
+            'in_name': 'jazz',
+            'gu_name': 'jazz',
+            'device_name': 'cuda:1',
+            'subfolder': subfolders[1],
+            'curriculum_type': 'random',
             'num_melodies': num_melodies,
             'num_guides': num_guides
         },
@@ -185,9 +231,8 @@ if __name__ == "__main__":
     with multiprocessing.get_context("fork").Pool(
         processes=len(task_args),
         initializer=init_worker,
-        initargs=(train_dataset, tokenizer, save_folder)
+        initargs=(test_dataset, jazz_dataset, tokenizer, save_folder)
     ) as pool:
         results = pool.map(train_wrapper, task_args)
-
     print("All finished:", results)
 # end main
